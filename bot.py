@@ -9,6 +9,25 @@ from discord.ext import commands
 import config
 from todo_manager import TodoManager
 import asyncio
+import threading
+import os
+from flask import Flask
+
+# Create Flask app for health check
+app = Flask(__name__)
+
+@app.route('/')
+def health_check():
+    return "Discord Bot is running! 🚀"
+
+@app.route('/health')
+def health():
+    return {"status": "healthy", "bot": "running"}
+
+def run_flask():
+    """Run Flask server in a separate thread"""
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port)
 
 class TodoBot(commands.Bot):
     def __init__(self):
@@ -455,4 +474,8 @@ if __name__ == "__main__":
         print("Please create a .env file with your Discord bot token.")
         exit(1)
     
+    # Start Flask server in a separate thread
+    flask_thread = threading.Thread(target=run_flask)
+    flask_thread.start()
+
     bot.run(config.DISCORD_TOKEN) 
