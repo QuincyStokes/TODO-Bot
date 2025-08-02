@@ -135,6 +135,65 @@ Posts the list to the channel and pins it for persistent visibility with interac
 ```
 Shows all available todo lists with completion statistics.
 
+## Deployment to Render
+
+### Option 1: Deploy from GitHub (Recommended)
+
+1. **Push your code to GitHub**
+   ```bash
+   git add .
+   git commit -m "Initial commit"
+   git push origin main
+   ```
+
+2. **Create a Render account**
+   - Go to [render.com](https://render.com) and sign up
+   - Connect your GitHub account
+
+3. **Create a new Web Service**
+   - Click "New +" → "Web Service"
+   - Connect your GitHub repository
+   - Select the repository containing your bot
+
+4. **Configure the service**
+   - **Name**: `discord-todo-bot` (or any name you prefer)
+   - **Environment**: `Python 3`
+   - **Build Command**: `pip install -r requirements.txt`
+   - **Start Command**: `python bot.py`
+
+5. **Add Environment Variables**
+   - Click "Environment" tab
+   - Add variable: `DISCORD_TOKEN` = your bot token
+   - Click "Save Changes"
+
+6. **Deploy**
+   - Click "Create Web Service"
+   - Render will automatically build and deploy your bot
+
+### Option 2: Manual Deployment
+
+1. **Create a Render account** and log in
+2. **Create a new Web Service**
+3. **Connect your GitHub repository**
+4. **Use the provided configuration files**:
+   - `render.yaml` - Automatic configuration
+   - `runtime.txt` - Python version specification
+   - `Procfile` - Process definition
+
+### Important Notes
+
+- **Environment Variables**: Make sure to add your `DISCORD_TOKEN` in Render's environment variables
+- **Auto-Deploy**: Render will automatically redeploy when you push changes to GitHub
+- **Logs**: Check the logs in Render dashboard if the bot doesn't start
+- **Free Tier**: Render offers a free tier that's perfect for Discord bots
+
+### Troubleshooting Deployment
+
+- **Bot not starting**: Check the logs in Render dashboard
+- **Environment variables**: Ensure `DISCORD_TOKEN` is set correctly
+- **Build errors**: Verify all dependencies are in `requirements.txt`
+- **Python version**: The bot uses Python 3.9.16 (specified in `runtime.txt`)
+
 ## File Structure
 
 ```
@@ -145,6 +204,10 @@ TODO-Bot/
 ├── requirements.txt    # Python dependencies
 ├── README.md          # This file
 ├── env_example.txt    # Example environment variables
+├── .gitignore         # Git ignore file
+├── render.yaml        # Render deployment configuration
+├── runtime.txt        # Python version specification
+├── Procfile           # Process definition for deployment
 └── todo_lists.json    # Data storage (created automatically)
 ```
 
