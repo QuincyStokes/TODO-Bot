@@ -6,6 +6,4 @@ services:
     startCommand: python bot.py
     envVars:
       - key: DISCORD_TOKEN
-        sync: false
-      - key: PYTHON_VERSION
-        value: 3.11.7 
+        sync: false 
