@@ -1,3 +1,39 @@
+#!/usr/bin/env python3
+"""
+Discord Todo Bot - Handles Python version compatibility and audioop module issues.
+"""
+
+import sys
+import os
+
+# Check Python version and handle audioop module
+def setup_environment():
+    """Setup environment for deployment compatibility"""
+    version = sys.version_info
+    print(f"Python version: {version.major}.{version.minor}.{version.micro}")
+    
+    # Handle audioop module for Python 3.13+
+    if version.major == 3 and version.minor >= 13:
+        print("⚠️  Python 3.13+ detected - applying audioop patch")
+        try:
+            import audioop
+            print("✅ audioop module found")
+        except ImportError:
+            print("⚠️  audioop module not found, creating dummy module")
+            # Create a dummy audioop module
+            class DummyAudioop:
+                def __getattr__(self, name):
+                    return lambda *args, **kwargs: None
+            sys.modules['audioop'] = DummyAudioop()
+    else:
+        print("✅ Using Python < 3.13 - audioop should be available")
+
+# Apply environment setup
+setup_environment()
+
+# Import patch first to handle audioop module
+import patch_audioop
+
 import discord
 from discord import app_commands
 from discord.ext import commands
