@@ -3,6 +3,11 @@ import os
 from datetime import datetime
 from typing import Dict, List, Optional
 
+# Create data directory for persistent storage
+DATA_DIR = os.environ.get('DATA_DIR', '/opt/render/project/src/data')
+if not os.path.exists(DATA_DIR):
+    os.makedirs(DATA_DIR, exist_ok=True)
+
 class TodoItem:
     def __init__(self, content: str, created_by: str, item_id: str = None):
         self.content = content
@@ -91,7 +96,7 @@ class TodoList:
 
 class TodoManager:
     def __init__(self, storage_file: str = 'todo_lists.json'):
-        self.storage_file = storage_file
+        self.storage_file = os.path.join(DATA_DIR, storage_file)
         self.todo_lists: Dict[str, TodoList] = {}
         self.load_lists()
     

@@ -6,4 +6,10 @@ services:
     startCommand: python bot.py
     envVars:
       - key: DISCORD_TOKEN
-        sync: false 
+        sync: false
+      - key: DATA_DIR
+        value: /opt/render/project/src/data
+    disk:
+      name: todo-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1 
