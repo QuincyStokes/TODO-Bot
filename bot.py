@@ -5,16 +5,6 @@ import config
 from todo_manager import TodoManager
 import asyncio
 
-# Handle missing audioop module (common on some deployment platforms)
-try:
-    import audioop
-except ImportError:
-    # Create a dummy audioop module if it's not available
-    class DummyAudioop:
-        def __getattr__(self, name):
-            return lambda *args, **kwargs: None
-    audioop = DummyAudioop()
-
 class TodoBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
