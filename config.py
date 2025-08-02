@@ -1,11 +1,17 @@
+"""
+Configuration module for Discord Todo Bot.
+
+Handles environment variables and configuration settings.
+"""
+
 import os
 from dotenv import load_dotenv
 
+# Load environment variables from .env file
 load_dotenv()
 
-# Bot Configuration
+# Discord Bot Token
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
-GUILD_ID = os.getenv('GUILD_ID')  # Optional: restrict to specific server
 
-# Database Configuration (using JSON for simplicity)
-TODO_FILE = 'todo_lists.json' 
+# Data directory for persistent storage
+DATA_DIR = os.getenv('DATA_DIR', '/opt/render/project/src/data') 
