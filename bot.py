@@ -71,7 +71,11 @@ class TodoBot(commands.Bot):
         intents.members = True
         
         super().__init__(command_prefix="!", intents=intents)
-        self.todo_manager = TodoManager()
+        # Initialize todo manager with proper storage path
+        logger.info(f"Initializing TodoManager with DATA_DIR: {config.DATA_DIR}")
+        logger.info(f"Database enabled: {config.USE_DATABASE}")
+        logger.info(f"Database path: {config.DATABASE_PATH}")
+        self.todo_manager = TodoManager("todo_lists.json")
         self.last_heartbeat = time.time()
         self.connection_attempts = 0
         self.max_reconnect_attempts = 5
@@ -793,6 +797,55 @@ async def debug_commands(interaction: discord.Interaction):
     except Exception as e:
         logger.error(f"Error in debug command: {e}")
         await safe_interaction_response(interaction, f"❌ Error in debug command: {str(e)}", ephemeral=True)
+
+@bot.tree.command(name="dbinfo", description="Show database information (debug)")
+async def database_info(interaction: discord.Interaction):
+    """Show database configuration and status."""
+    try:
+        import os
+        import config
+        
+        embed = discord.Embed(
+            title="🗄️ Database Information",
+            color=discord.Color.blue()
+        )
+        
+        # Database configuration
+        embed.add_field(
+            name="Configuration",
+            value=f"**DATA_DIR:** {config.DATA_DIR}\n"
+                  f"**USE_DATABASE:** {config.USE_DATABASE}\n"
+                  f"**DATABASE_PATH:** {config.DATABASE_PATH}\n"
+                  f"**Directory exists:** {os.path.exists(config.DATA_DIR)}",
+            inline=False
+        )
+        
+        # Database file status
+        if config.USE_DATABASE and config.DATABASE_PATH:
+            db_exists = os.path.exists(config.DATABASE_PATH)
+            db_size = os.path.getsize(config.DATABASE_PATH) if db_exists else 0
+            embed.add_field(
+                name="Database File",
+                value=f"**Exists:** {db_exists}\n"
+                      f"**Size:** {db_size} bytes\n"
+                      f"**Path:** {config.DATABASE_PATH}",
+                inline=False
+            )
+        
+        # Current data status
+        total_lists = len(bot.todo_manager.todo_lists)
+        embed.add_field(
+            name="Current Data",
+            value=f"**Total lists in memory:** {total_lists}\n"
+                  f"**Lists for this guild:** {len(bot.todo_manager.get_all_lists(str(interaction.guild_id)))}",
+            inline=False
+        )
+        
+        await safe_interaction_response(interaction, "", embed=embed, ephemeral=True)
+        
+    except Exception as e:
+        logger.error(f"Database info command error: {e}")
+        await safe_interaction_response(interaction, f"❌ Database info error: {str(e)}", ephemeral=True)
 
 
 @bot.tree.command(name="delete", description="Delete a todo list")
