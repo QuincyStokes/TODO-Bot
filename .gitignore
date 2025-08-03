@@ -3,6 +3,8 @@
 
 # Data files
 todo_lists.json
+data/
+*.log
 
 # Python
 __pycache__/

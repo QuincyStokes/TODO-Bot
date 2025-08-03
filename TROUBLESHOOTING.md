@@ -1,156 +1,194 @@
-# Discord Bot Troubleshooting Guide
+# Discord Todo Bot Troubleshooting Guide
 
-This guide helps diagnose and fix common issues with the Discord Todo Bot on Render.
+## 🚨 Common Issues and Solutions
 
-## Common Issues and Solutions
-
-### 1. Bot Goes Offline After Deployment
+### Issue: Lists disappear after redeploying
 
 **Symptoms:**
-- Bot appears online initially but goes offline after a few minutes
-- Bot doesn't respond to commands
-- Health check endpoint returns errors
+- You create a list, redeploy the bot, and `/list` shows no lists
+- The bot seems to "forget" all data after restart
 
-**Causes:**
-- Missing error handling and reconnection logic
-- No heartbeat mechanism
-- Flask server crashes
-- Discord connection issues
+**Diagnostic Steps:**
+
+1. **Check Database Status with `/dbinfo`**
+   ```
+   /dbinfo
+   ```
+   This will show:
+   - Database configuration
+   - Whether the database file exists
+   - Current data in memory
+   - Lists for your guild
+
+2. **Force Reload Data with `/reload`**
+   ```
+   /reload
+   ```
+   This forces the bot to reload all data from storage
+
+3. **Force Save Data with `/forcesave`**
+   ```
+   /forcesave
+   ```
+   This forces the bot to save all current data to storage
+
+**Common Causes:**
+
+1. **Render Disk Not Mounted Properly**
+   - Check if `DATA_DIR` environment variable is set correctly
+   - Verify the persistent disk is mounted at `/opt/render/project/src/data`
+
+2. **Database File Permissions**
+   - The bot might not have write permissions to the data directory
+   - Check if the database file exists and is writable
+
+3. **Database Initialization Issues**
+   - Tables might not be created properly
+   - The bot might be falling back to JSON storage
 
 **Solutions:**
-- ✅ **Fixed**: Added comprehensive error handling and reconnection logic
-- ✅ **Fixed**: Implemented heartbeat mechanism
-- ✅ **Fixed**: Added proper logging for debugging
-- ✅ **Fixed**: Made Flask thread daemon to prevent crashes
 
-### 2. Bot Not Starting
+1. **Check Render Configuration**
+   - Ensure your `render.yaml` has the persistent disk configured:
+   ```yaml
+   disk:
+     name: todo-data
+     mountPath: /opt/render/project/src/data
+     sizeGB: 1
+   ```
+
+2. **Verify Environment Variables**
+   - `DATA_DIR` should be `/opt/render/project/src/data`
+   - `USE_DATABASE` should be `true`
+
+3. **Check Bot Logs**
+   - Look for any database initialization errors
+   - Check for permission errors
+
+### Issue: "Add Item" button doesn't update the list
 
 **Symptoms:**
-- Bot never appears online
-- Render shows deployment success but bot is offline
-- No logs in Render dashboard
-
-**Causes:**
-- Invalid Discord token
-- Missing environment variables
-- Data directory permissions
-- Import errors
+- You click "Add Item", fill out the form, but the list doesn't update
+- You see error messages about "404 Not Found" or "Unknown Message"
 
 **Solutions:**
-- Check Discord token in Render environment variables
-- Verify all required environment variables are set
-- Check data directory permissions
-- Review startup logs in Render dashboard
+1. **Use the `/refresh` command** to create a fresh interactive view
+2. **Check if the original message was deleted** - the bot can't edit deleted messages
+3. **Try using `/add` command instead** of the UI button
 
-### 3. Bot Responds Intermittently
+### Issue: Bot shows "Unknown interaction" errors
 
 **Symptoms:**
-- Bot sometimes responds, sometimes doesn't
-- Commands work occasionally
-- Slash commands not syncing
-
-**Causes:**
-- Rate limiting
-- Connection instability
-- Command sync issues
+- Error messages about "404 Not Found (error code: 10062)"
+- Bot responses fail with interaction errors
 
 **Solutions:**
-- ✅ **Fixed**: Added rate limit handling
-- ✅ **Fixed**: Improved connection stability
-- ✅ **Fixed**: Enhanced command syncing
+1. **Wait a moment and try again** - interactions can expire
+2. **Use slash commands directly** instead of UI buttons
+3. **Check bot permissions** in your Discord server
 
-## Debugging Steps
+## 🔧 Debug Commands
 
-### 1. Check Render Logs
+### `/dbinfo` - Database Information
+Shows detailed database status including:
+- Configuration settings
+- Database file existence and size
+- Current data in memory
+- Lists for your guild
+
+### `/reload` - Force Data Reload
+Forces the bot to reload all data from storage. Use this if:
+- Lists disappeared after restart
+- You suspect data isn't being loaded properly
+
+### `/forcesave` - Force Data Save
+Forces the bot to save all current data to storage. Use this if:
+- You want to ensure data is persisted
+- You suspect data isn't being saved properly
+
+### `/debug` - List All Commands
+Shows all registered slash commands for debugging.
+
+## 📊 Database Status Check
+
+Run this diagnostic script on Render to check database status:
+
 ```bash
-# View recent logs in Render dashboard
-# Look for error messages and connection issues
+python debug_database.py
 ```
 
-### 2. Test Health Endpoint
+This will show:
+- Environment variables
+- Data directory contents
+- Database file status
+- Table structure
+- Current data counts
+
+## 🐛 Common Error Messages
+
+### "404 Not Found (error code: 10008): Unknown Message"
+- **Cause**: The original message was deleted or the bot can't find it
+- **Solution**: Use `/refresh` to create a new interactive view
+
+### "404 Not Found (error code: 10062): Unknown interaction"
+- **Cause**: The interaction expired or was deleted
+- **Solution**: Try the command again, interactions have a time limit
+
+### "Database file does not exist"
+- **Cause**: First run or database initialization failed
+- **Solution**: The bot will create the database automatically on first use
+
+### "Permission denied"
+- **Cause**: Bot doesn't have write permissions to data directory
+- **Solution**: Check Render disk configuration and permissions
+
+## 🔍 Advanced Debugging
+
+### Check Render Logs
+1. Go to your Render dashboard
+2. Click on your service
+3. Go to the "Logs" tab
+4. Look for any error messages related to:
+   - Database initialization
+   - File permissions
+   - Data loading/saving
+
+### Check Database File
+If you have SSH access to Render:
 ```bash
-# Test if the bot is responding to health checks
-curl https://your-app-name.onrender.com/health
+ls -la /opt/render/project/src/data/
+sqlite3 /opt/render/project/src/data/todo_bot.db ".tables"
+sqlite3 /opt/render/project/src/data/todo_bot.db "SELECT COUNT(*) FROM todo_lists;"
 ```
 
-### 3. Check Bot Status
+### Check JSON Fallback
 ```bash
-# Test basic connectivity
-curl https://your-app-name.onrender.com/
+cat /opt/render/project/src/data/todo_lists.json
 ```
 
-### 4. Monitor Logs
-The bot now creates detailed logs:
-- `bot.log` - Main bot logs
-- `startup.log` - Startup process logs
+## 🚀 Performance Tips
 
-### 5. Environment Variables
-Ensure these are set in Render:
-- `DISCORD_TOKEN` - Your Discord bot token
-- `DATA_DIR` - Data storage directory (auto-set)
+1. **Use `/reload` sparingly** - it reloads all data from storage
+2. **Use `/forcesave` when needed** - it saves all data to storage
+3. **Monitor database size** - large databases can slow down operations
+4. **Check guild isolation** - ensure lists are properly separated by guild
 
-## Render-Specific Issues
+## 📞 Getting Help
 
-### 1. Cold Starts
-Render services can have cold starts. The bot now handles this with:
-- Automatic reconnection logic
-- Heartbeat mechanism
-- Proper error handling
+If you're still having issues:
 
-### 2. Memory Limits
-If you hit memory limits:
-- Check for memory leaks in your code
-- Monitor resource usage in Render dashboard
-- Consider upgrading your Render plan
+1. **Run `/dbinfo`** and share the output
+2. **Check Render logs** for any error messages
+3. **Try the debug commands** to isolate the issue
+4. **Check if the issue is guild-specific** or affects all guilds
 
-### 3. Timeout Issues
-Render has request timeouts. The bot now:
-- Uses daemon threads for Flask
-- Implements proper error handling
-- Has health check endpoints
+## 🔄 Data Recovery
 
-## Monitoring Your Bot
+If you've lost data:
 
-### 1. Health Check Endpoints
-- `/` - Basic status
-- `/health` - Detailed health information
+1. **Check if JSON fallback exists** - the bot might have saved data there
+2. **Use `/reload`** to try loading from storage
+3. **Check Render logs** for any data loading errors
+4. **Verify disk persistence** - ensure the Render disk is properly configured
 
-### 2. Log Files
-- Check `bot.log` for Discord connection issues
-- Check `startup.log` for startup problems
-- Monitor Render dashboard logs
-
-### 3. Discord Status
-- Check if bot appears online in Discord
-- Test slash commands
-- Verify bot permissions
-
-## Quick Fixes
-
-### If Bot Won't Start:
-1. Check Discord token in Render environment variables
-2. Verify bot has proper permissions in Discord
-3. Check Render logs for error messages
-
-### If Bot Goes Offline:
-1. Check Render logs for connection errors
-2. Verify Discord token is still valid
-3. Test health endpoint
-4. Restart the service in Render
-
-### If Commands Don't Work:
-1. Check if slash commands are synced
-2. Verify bot permissions in Discord server
-3. Test basic commands like `/debug`
-
-## Prevention
-
-The updated bot now includes:
-- ✅ Automatic reconnection on disconnection
-- ✅ Heartbeat mechanism to keep connection alive
-- ✅ Comprehensive error handling
-- ✅ Detailed logging for debugging
-- ✅ Rate limit handling
-- ✅ Health check endpoints
-
-These improvements should prevent most common issues that cause bots to go offline on Render. 
+Remember: The bot uses both SQLite database and JSON fallback for data persistence. If one fails, the other should still work. 

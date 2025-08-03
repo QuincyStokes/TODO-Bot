@@ -880,6 +880,7 @@ async def database_info(interaction: discord.Interaction):
     try:
         import os
         import config
+        import sqlite3
         
         embed = discord.Embed(
             title="🗄️ Database Information",
@@ -907,6 +908,62 @@ async def database_info(interaction: discord.Interaction):
                       f"**Path:** {config.DATABASE_PATH}",
                 inline=False
             )
+            
+            # Check database structure if it exists
+            if db_exists:
+                try:
+                    conn = sqlite3.connect(config.DATABASE_PATH)
+                    cursor = conn.cursor()
+                    
+                    # Check tables
+                    cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                    tables = cursor.fetchall()
+                    table_names = [table[0] for table in tables]
+                    
+                    # Check todo_lists table
+                    if 'todo_lists' in table_names:
+                        cursor.execute("SELECT COUNT(*) FROM todo_lists")
+                        list_count = cursor.fetchone()[0]
+                        
+                        # Check todo_items table
+                        cursor.execute("SELECT COUNT(*) FROM todo_items")
+                        item_count = cursor.fetchone()[0]
+                        
+                        embed.add_field(
+                            name="Database Content",
+                            value=f"**Todo Lists:** {list_count}\n"
+                                  f"**Todo Items:** {item_count}\n"
+                                  f"**Tables:** {', '.join(table_names)}",
+                            inline=False
+                        )
+                    else:
+                        embed.add_field(
+                            name="Database Content",
+                            value="❌ **todo_lists table not found!**\n"
+                                  f"**Tables:** {', '.join(table_names)}",
+                            inline=False
+                        )
+                    
+                    conn.close()
+                    
+                except Exception as e:
+                    embed.add_field(
+                        name="Database Content",
+                        value=f"❌ **Error reading database:** {str(e)}",
+                        inline=False
+                    )
+        
+        # JSON fallback status
+        json_path = os.path.join(config.DATA_DIR, 'todo_lists.json')
+        json_exists = os.path.exists(json_path)
+        json_size = os.path.getsize(json_path) if json_exists else 0
+        embed.add_field(
+            name="JSON Fallback",
+            value=f"**Exists:** {json_exists}\n"
+                  f"**Size:** {json_size} bytes\n"
+                  f"**Path:** {json_path}",
+            inline=False
+        )
         
         # Current data status
         total_lists = len(bot.todo_manager.todo_lists)
@@ -928,6 +985,22 @@ async def database_info(interaction: discord.Interaction):
                 value="\n".join(list_details),
                 inline=False
             )
+        else:
+            embed.add_field(
+                name="Guild Lists",
+                value="❌ **No lists found for this guild**",
+                inline=False
+            )
+        
+        # Add troubleshooting tips
+        embed.add_field(
+            name="💡 Troubleshooting",
+            value="• Use `/reload` to force reload data\n"
+                  "• Use `/forcesave` to force save data\n"
+                  "• Check Render logs for errors\n"
+                  "• Verify disk is properly mounted",
+            inline=False
+        )
         
         await safe_interaction_response(interaction, "", embed=embed, ephemeral=True)
         
