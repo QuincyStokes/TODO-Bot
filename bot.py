@@ -91,11 +91,20 @@ class TodoBot(commands.Bot):
     async def setup_hook(self):
         """Setup hook called when bot is ready."""
         try:
+            # Sync commands to Discord servers
+            logger.info("Syncing commands to Discord servers...")
             await self.tree.sync()
+            logger.info("✅ Commands synced successfully!")
+            
+            # Log all registered commands for debugging
+            commands = [cmd.name for cmd in self.tree.get_commands()]
+            logger.info(f"Registered commands: {', '.join(commands)}")
+            
             logger.info("Bot is ready!")
             self.heartbeat.start()
         except Exception as e:
             logger.error(f"Error in setup_hook: {e}")
+            # Continue anyway - bot will still work with cached commands
     
     @tasks.loop(minutes=1)
     async def heartbeat(self):
@@ -291,23 +300,27 @@ class InteractiveTodoListView(discord.ui.View):
         """Handle view timeout by updating the message."""
         try:
             embed = discord.Embed(
-                title="⏰ Interactive View Expired",
-                description=f"The interactive view for **{self.todo_list.name}** has timed out after 5 minutes.",
-                color=discord.Color.orange()
+                title="🚨 **INTERACTIVE VIEW EXPIRED** 🚨",
+                description=f"**⚠️ WARNING: This interactive view for '{self.todo_list.name}' is no longer functional!**\n\n"
+                           f"**The buttons below are now disabled and will not respond to clicks.**\n"
+                           f"*This happened automatically after 5 minutes for security reasons.*",
+                color=discord.Color.red()
             )
             embed.add_field(
-                name="How to continue:",
-                value=f"• Use `/show {self.todo_list.name}` to get a fresh interactive view\n"
-                      "• Use commands like `/add`, `/toggle`, `/remove` for direct actions",
+                name="🔄 **To Continue Using This List:**",
+                value=f"**• Use `/show {self.todo_list.name}` to get a fresh interactive view**\n"
+                      f"**• Use `/add`, `/toggle`, `/remove` commands for direct actions**\n"
+                      f"**• Use `/refresh {self.todo_list.name}` for a quick refresh**",
                 inline=False
             )
             embed.add_field(
-                name="Current List Status:",
-                value=f"Items: {len(self.todo_list.items)} | "
-                      f"Completed: {sum(1 for item in self.todo_list.items if item.completed)}",
+                name="📊 **Current List Status:**",
+                value=f"**Total Items:** {len(self.todo_list.items)}\n"
+                      f"**Completed:** {sum(1 for item in self.todo_list.items if item.completed)}\n"
+                      f"**Pending:** {sum(1 for item in self.todo_list.items if not item.completed)}",
                 inline=False
             )
-            embed.set_footer(text="Interactive views expire after 5 minutes for security reasons")
+            embed.set_footer(text="🕐 Interactive views automatically expire after 5 minutes | Use /show to get a fresh view")
             
             # Try to edit the message, fallback to followup if needed
             try:
@@ -440,17 +453,27 @@ class TodoListView(discord.ui.View):
         """Handle view timeout by updating the message."""
         try:
             embed = discord.Embed(
-                title="⏰ Legacy View Expired",
-                description=f"The interactive view for **{self.todo_list.name}** has timed out after 5 minutes.",
-                color=discord.Color.orange()
+                title="🚨 **INTERACTIVE VIEW EXPIRED** 🚨",
+                description=f"**⚠️ WARNING: This interactive view for '{self.todo_list.name}' is no longer functional!**\n\n"
+                           f"**The buttons below are now disabled and will not respond to clicks.**\n"
+                           f"*This happened automatically after 5 minutes for security reasons.*",
+                color=discord.Color.red()
             )
             embed.add_field(
-                name="How to continue:",
-                value=f"• Use `/show {self.todo_list.name}` to get a fresh interactive view\n"
-                      "• Use commands like `/add`, `/toggle`, `/remove` for direct actions",
+                name="🔄 **To Continue Using This List:**",
+                value=f"**• Use `/show {self.todo_list.name}` to get a fresh interactive view**\n"
+                      f"**• Use `/add`, `/toggle`, `/remove` commands for direct actions**\n"
+                      f"**• Use `/refresh {self.todo_list.name}` for a quick refresh**",
                 inline=False
             )
-            embed.set_footer(text="Interactive views expire after 5 minutes for security reasons")
+            embed.add_field(
+                name="📊 **Current List Status:**",
+                value=f"**Total Items:** {len(self.todo_list.items)}\n"
+                      f"**Completed:** {sum(1 for item in self.todo_list.items if item.completed)}\n"
+                      f"**Pending:** {sum(1 for item in self.todo_list.items if not item.completed)}",
+                inline=False
+            )
+            embed.set_footer(text="🕐 Interactive views automatically expire after 5 minutes | Use /show to get a fresh view")
             
             # Try to edit the message, fallback to followup if needed
             try:
@@ -904,6 +927,65 @@ async def debug_commands(interaction: discord.Interaction):
         await safe_interaction_response(interaction, f"❌ Error in debug command: {str(e)}", ephemeral=True)
 
 
+@bot.tree.command(name="sync", description="Force sync commands to Discord servers (admin only)")
+async def sync_commands(interaction: discord.Interaction):
+    """Force sync commands to Discord servers (admin only)."""
+    try:
+        # Check if user has administrator permissions
+        if not interaction.user.guild_permissions.administrator:
+            await safe_interaction_response(
+                interaction,
+                "❌ This command requires administrator permissions!", 
+                ephemeral=True
+            )
+            return
+        
+        # Show syncing message
+        await safe_interaction_response(
+            interaction,
+            "🔄 Syncing commands to Discord servers... This may take a few moments.", 
+            ephemeral=True
+        )
+        
+        # Sync commands
+        await bot.tree.sync()
+        
+        # Get updated command list
+        commands = [cmd.name for cmd in bot.tree.get_commands()]
+        
+        embed = discord.Embed(
+            title="✅ Commands Synced Successfully!",
+            description="All commands have been updated on Discord servers.",
+            color=discord.Color.green()
+        )
+        
+        embed.add_field(
+            name="📋 Registered Commands",
+            value=", ".join([f"`/{cmd}`" for cmd in commands]),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="⏰ Next Steps",
+            value="• Commands should be available immediately\n"
+                  "• If you still see 'outdated' messages, wait 2-3 minutes\n"
+                  "• Try using the commands again",
+            inline=False
+        )
+        
+        embed.set_footer(text="Note: Discord caches commands for a few minutes")
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        
+    except Exception as e:
+        logger.error(f"Error syncing commands: {e}")
+        await safe_interaction_response(
+            interaction, 
+            f"❌ Error syncing commands: {str(e)}", 
+            ephemeral=True
+        )
+
+
 
 
 @bot.tree.command(name="delete", description="Delete a todo list")
@@ -989,13 +1071,14 @@ async def help_command(interaction: discord.Interaction):
         
         # Troubleshooting
         embed.add_field(
-            name="🔧 Troubleshooting",
-            value="• **View expired?** Use `/show [name]` to refresh\n"
-                  "• **Bot offline?** Check if Render server is running\n"
-                  "• **Commands not working?** Use `/debug` to check status\n"
-                  "• **Need help?** Contact the bot administrator",
-            inline=False
-        )
+             name="🔧 Troubleshooting",
+             value="• **View expired?** Use `/show [name]` to refresh\n"
+                   "• **Commands outdated?** Use `/sync` (admin only) to force update\n"
+                   "• **Bot offline?** Check if Render server is running\n"
+                   "• **Commands not working?** Use `/debug` to check status\n"
+                   "• **Need help?** Contact the bot administrator",
+             inline=False
+         )
         
         embed.set_footer(text="Tip: Use commands for quick actions, interactive views for detailed work")
         
