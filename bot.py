@@ -251,23 +251,21 @@ async def safe_interaction_response_with_view(interaction: discord.Interaction, 
         
         if interaction.response.is_done():
             message = await interaction.followup.send(content, embed=embed, view=view)
-        else:
-            message = await interaction.response.send_message(content, embed=embed, view=view)
-        
-        logger.debug(f"Message returned from response: {message}")
-        
-        # Set the message reference on the view if it exists
-        if view and hasattr(view, 'message'):
-            # Check if message exists before accessing its id
-            if message:
+            # For followup messages, we get the message object directly
+            if view and hasattr(view, 'message') and message:
                 view.message = message
-                logger.debug(f"Set message reference for view: {type(view).__name__} - Message ID: {message.id}")
-            else:
-                logger.warning(f"message is None in response for view: {type(view).__name__}")
+                logger.debug(f"Set message reference for view via followup: {type(view).__name__} - Message ID: {message.id}")
         else:
-            logger.warning(f"View does not have message attribute or view is None: {type(view).__name__ if view else 'None'}")
+            # For initial responses, we need to use interaction.message after sending
+            await interaction.response.send_message(content, embed=embed, view=view)
+            # Set the message reference using interaction.message
+            if view and hasattr(view, 'message') and interaction.message:
+                view.message = interaction.message
+                logger.debug(f"Set message reference for view via response: {type(view).__name__} - Message ID: {interaction.message.id}")
+            elif view and hasattr(view, 'message'):
+                logger.warning(f"interaction.message is None for view: {type(view).__name__}")
         
-        return message
+        return interaction.message if not interaction.response.is_done() else None
     except discord.NotFound:
         logger.warning("Interaction not found - it may have expired")
         return None
