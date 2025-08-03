@@ -514,6 +514,200 @@ class TestNewFeatures(unittest.TestCase):
         self.assertLess(item_count, 100)   # Reasonable upper bound
 
 
+class TestMultiItemAdd(unittest.TestCase):
+    """Test multi-item add functionality"""
+    
+    def setUp(self):
+        # Create a temporary directory for test data
+        self.test_dir = tempfile.mkdtemp()
+        self.original_data_dir = os.environ.get('DATA_DIR')
+        os.environ['DATA_DIR'] = self.test_dir
+        
+        # Initialize TodoManager
+        self.todo_manager = TodoManager("test_todo_lists.json")
+        
+        # Create a test list
+        self.todo_list = self.todo_manager.create_list("Test List", "user123", "guild456")
+    
+    def tearDown(self):
+        # Clean up test directory
+        if os.path.exists(self.test_dir):
+            shutil.rmtree(self.test_dir)
+        if self.original_data_dir:
+            os.environ['DATA_DIR'] = self.original_data_dir
+        else:
+            os.environ.pop('DATA_DIR', None)
+    
+    def test_single_item_add(self):
+        """Test adding a single item (backward compatibility)"""
+        # Simulate the add command logic
+        items_input = "Single item"
+        item_list = [item.strip() for item in items_input.split(',') if item.strip()]
+        
+        self.assertEqual(len(item_list), 1)
+        self.assertEqual(item_list[0], "Single item")
+        
+        # Add the item
+        new_item = self.todo_manager.add_item_to_list(self.todo_list.list_id, item_list[0], "user123")
+        
+        self.assertIsNotNone(new_item)
+        self.assertEqual(len(self.todo_list.items), 1)
+        self.assertEqual(self.todo_list.items[0].content, "Single item")
+    
+    def test_multiple_items_add(self):
+        """Test adding multiple items with comma separation"""
+        items_input = "Milk, Bread, Eggs, Butter"
+        item_list = [item.strip() for item in items_input.split(',') if item.strip()]
+        
+        self.assertEqual(len(item_list), 4)
+        self.assertEqual(item_list, ["Milk", "Bread", "Eggs", "Butter"])
+        
+        # Add all items
+        successful_items = []
+        for item in item_list:
+            new_item = self.todo_manager.add_item_to_list(self.todo_list.list_id, item, "user123")
+            if new_item:
+                successful_items.append(item)
+        
+        self.assertEqual(len(successful_items), 4)
+        self.assertEqual(len(self.todo_list.items), 4)
+        self.assertEqual([item.content for item in self.todo_list.items], ["Milk", "Bread", "Eggs", "Butter"])
+    
+    def test_items_with_extra_whitespace(self):
+        """Test handling of items with extra whitespace"""
+        items_input = "  Milk  ,  Bread  ,  Eggs  "
+        item_list = [item.strip() for item in items_input.split(',') if item.strip()]
+        
+        self.assertEqual(len(item_list), 3)
+        self.assertEqual(item_list, ["Milk", "Bread", "Eggs"])
+        
+        # Add items
+        for item in item_list:
+            self.todo_manager.add_item_to_list(self.todo_list.list_id, item, "user123")
+        
+        self.assertEqual(len(self.todo_list.items), 3)
+        self.assertEqual([item.content for item in self.todo_list.items], ["Milk", "Bread", "Eggs"])
+    
+    def test_empty_items_filtering(self):
+        """Test that empty items are filtered out"""
+        items_input = "Milk,, Bread, , Eggs,"
+        item_list = [item.strip() for item in items_input.split(',') if item.strip()]
+        
+        self.assertEqual(len(item_list), 3)
+        self.assertEqual(item_list, ["Milk", "Bread", "Eggs"])
+        
+        # Add items
+        for item in item_list:
+            self.todo_manager.add_item_to_list(self.todo_list.list_id, item, "user123")
+        
+        self.assertEqual(len(self.todo_list.items), 3)
+    
+    def test_items_with_commas_in_quotes(self):
+        """Test handling of items that contain commas (simulated with quotes)"""
+        # This simulates how users might handle items with commas
+        # Note: The current implementation splits by comma, so quoted items with commas
+        # will be split. Users would need to handle this manually or we'd need
+        # more sophisticated parsing
+        items_input = '"Buy milk, bread, and eggs", "Call mom", "Walk the dog"'
+        item_list = [item.strip() for item in items_input.split(',') if item.strip()]
+        
+        # With current implementation, this would split into 5 items:
+        # '"Buy milk', ' bread', ' and eggs"', ' "Call mom"', ' "Walk the dog"'
+        self.assertEqual(len(item_list), 5)
+        
+        # Add items
+        for item in item_list:
+            self.todo_manager.add_item_to_list(self.todo_list.list_id, item, "user123")
+        
+        self.assertEqual(len(self.todo_list.items), 5)
+    
+    def test_mixed_success_and_failure(self):
+        """Test scenario where some items succeed and others fail"""
+        items_input = "Valid item 1, Valid item 2, Valid item 3"
+        item_list = [item.strip() for item in items_input.split(',') if item.strip()]
+        
+        successful_items = []
+        failed_items = []
+        
+        for item in item_list:
+            new_item = self.todo_manager.add_item_to_list(self.todo_list.list_id, item, "user123")
+            if new_item:
+                successful_items.append(item)
+            else:
+                failed_items.append(item)
+        
+        # All items should succeed in normal operation
+        self.assertEqual(len(successful_items), 3)
+        self.assertEqual(len(failed_items), 0)
+        self.assertEqual(len(self.todo_list.items), 3)
+    
+    def test_empty_input_validation(self):
+        """Test validation of empty input"""
+        items_input = "   ,  ,  "
+        item_list = [item.strip() for item in items_input.split(',') if item.strip()]
+        
+        self.assertEqual(len(item_list), 0)
+        
+        # Should not add any items
+        self.assertEqual(len(self.todo_list.items), 0)
+    
+    def test_single_empty_item(self):
+        """Test handling of single empty item"""
+        items_input = ""
+        item_list = [item.strip() for item in items_input.split(',') if item.strip()]
+        
+        self.assertEqual(len(item_list), 0)
+        
+        # Should not add any items
+        self.assertEqual(len(self.todo_list.items), 0)
+    
+    def test_large_number_of_items(self):
+        """Test adding a large number of items"""
+        items_input = ", ".join([f"Item {i}" for i in range(1, 21)])  # 20 items
+        item_list = [item.strip() for item in items_input.split(',') if item.strip()]
+        
+        self.assertEqual(len(item_list), 20)
+        
+        # Add all items
+        for item in item_list:
+            self.todo_manager.add_item_to_list(self.todo_list.list_id, item, "user123")
+        
+        self.assertEqual(len(self.todo_list.items), 20)
+        self.assertEqual(self.todo_list.items[0].content, "Item 1")
+        self.assertEqual(self.todo_list.items[19].content, "Item 20")
+    
+    def test_special_characters_in_items(self):
+        """Test items with special characters"""
+        items_input = "Buy groceries 🛒, Call mom 📞, Walk dog 🐕"
+        item_list = [item.strip() for item in items_input.split(',') if item.strip()]
+        
+        self.assertEqual(len(item_list), 3)
+        
+        # Add items
+        for item in item_list:
+            self.todo_manager.add_item_to_list(self.todo_list.list_id, item, "user123")
+        
+        self.assertEqual(len(self.todo_list.items), 3)
+        self.assertEqual(self.todo_list.items[0].content, "Buy groceries 🛒")
+        self.assertEqual(self.todo_list.items[1].content, "Call mom 📞")
+        self.assertEqual(self.todo_list.items[2].content, "Walk dog 🐕")
+    
+    def test_duplicate_items(self):
+        """Test adding duplicate items"""
+        items_input = "Milk, Milk, Bread, Bread, Eggs"
+        item_list = [item.strip() for item in items_input.split(',') if item.strip()]
+        
+        self.assertEqual(len(item_list), 5)
+        
+        # Add items
+        for item in item_list:
+            self.todo_manager.add_item_to_list(self.todo_list.list_id, item, "user123")
+        
+        # All items should be added (duplicates are allowed)
+        self.assertEqual(len(self.todo_list.items), 5)
+        self.assertEqual([item.content for item in self.todo_list.items], ["Milk", "Milk", "Bread", "Bread", "Eggs"])
+
+
 class TestDataIsolation(unittest.TestCase):
     """Test data isolation between guilds and users"""
     
@@ -574,6 +768,7 @@ def run_tests():
         TestTodoManager,
         TestBotCommands,
         TestNewFeatures,
+        TestMultiItemAdd,
         TestDataIsolation
     ]
     

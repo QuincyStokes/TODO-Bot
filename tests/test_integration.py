@@ -160,6 +160,54 @@ class TestBotIntegration(unittest.TestCase):
             
         except Exception as e:
             self.fail(f"User permissions integration test failed: {e}")
+    
+    def test_multi_item_add_integration(self):
+        """Test multi-item add functionality in integration"""
+        try:
+            import os
+            
+            # Use a file path in the test directory
+            test_file = os.path.join(self.test_dir, "test_todo_lists.json")
+            
+            # Create manager and list
+            manager = TodoManager(test_file)
+            todo_list = manager.create_list("Shopping List", "user123", "guild456")
+            
+            # Test multi-item add functionality
+            items_input = "Milk, Bread, Eggs, Butter, Cheese"
+            item_list = [item.strip() for item in items_input.split(',') if item.strip()]
+            
+            # Add all items
+            successful_items = []
+            for item in item_list:
+                new_item = manager.add_item_to_list(todo_list.list_id, item, "user123")
+                if new_item:
+                    successful_items.append(item)
+            
+            # Verify all items were added
+            self.assertEqual(len(successful_items), 5)
+            self.assertEqual(len(todo_list.items), 5)
+            
+            # Verify item contents
+            expected_items = ["Milk", "Bread", "Eggs", "Butter", "Cheese"]
+            actual_items = [item.content for item in todo_list.items]
+            self.assertEqual(actual_items, expected_items)
+            
+            # Test persistence
+            manager.force_save()
+            
+            # Create new manager to test persistence
+            manager2 = TodoManager(test_file)
+            loaded_list = manager2.get_list_by_name("Shopping List", "guild456")
+            
+            self.assertIsNotNone(loaded_list)
+            self.assertEqual(len(loaded_list.items), 5)
+            self.assertEqual([item.content for item in loaded_list.items], expected_items)
+            
+            print("✅ Multi-item add integration test passed")
+            
+        except Exception as e:
+            self.fail(f"Multi-item add integration test failed: {e}")
 
 def run_integration_tests():
     """Run integration tests"""

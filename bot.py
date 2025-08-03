@@ -211,7 +211,7 @@ class TodoItemView(discord.ui.View):
             )
             embed.add_field(
                 name="How to continue:",
-                value="• Use `/show {self.todo_list.name}` to get a fresh interactive view\n"
+                value=f"• Use `/show {self.todo_list.name}` to get a fresh interactive view\n"
                       "• Use commands like `/add`, `/toggle`, `/remove` for direct actions",
                 inline=False
             )
@@ -611,10 +611,10 @@ async def create_list(interaction: discord.Interaction, name: str):
         await safe_interaction_response(interaction, f"❌ Error creating todo list: {str(e)}", ephemeral=True)
 
 
-@bot.tree.command(name="add", description="Add an item to a todo list")
-@app_commands.describe(list_name="Name of the todo list", item="The todo item to add")
-async def add_item(interaction: discord.Interaction, list_name: str, item: str):
-    """Add an item to a specific todo list."""
+@bot.tree.command(name="add", description="Add items to a todo list (separate multiple items with commas)")
+@app_commands.describe(list_name="Name of the todo list", items="The todo items to add (separate multiple items with commas)")
+async def add_item(interaction: discord.Interaction, list_name: str, items: str):
+    """Add one or more items to a specific todo list."""
     try:
         guild_id = str(interaction.guild_id)
         
@@ -628,13 +628,46 @@ async def add_item(interaction: discord.Interaction, list_name: str, item: str):
             )
             return
         
-        # Add item
-        new_item = bot.todo_manager.add_item_to_list(todo_list.list_id, item, str(interaction.user.id))
-        await safe_interaction_response(interaction, "", ephemeral=True)
+        # Split items by comma and clean them up
+        item_list = [item.strip() for item in items.split(',') if item.strip()]
+        
+        if not item_list:
+            await safe_interaction_response(
+                interaction,
+                "❌ No valid items provided. Please enter at least one item.", 
+                ephemeral=True
+            )
+            return
+        
+        # Add all items
+        successful_items = []
+        failed_items = []
+        
+        for item in item_list:
+            new_item = bot.todo_manager.add_item_to_list(todo_list.list_id, item, str(interaction.user.id))
+            if new_item:
+                successful_items.append(item)
+            else:
+                failed_items.append(item)
+        
+        # Create response message
+        if successful_items and not failed_items:
+            if len(successful_items) == 1:
+                await safe_interaction_response(interaction, f"✅ Added 1 item to **{list_name}**", ephemeral=True)
+            else:
+                await safe_interaction_response(interaction, f"✅ Added {len(successful_items)} items to **{list_name}**", ephemeral=True)
+        elif successful_items and failed_items:
+            await safe_interaction_response(
+                interaction, 
+                f"⚠️ Added {len(successful_items)} items to **{list_name}**, but failed to add {len(failed_items)} items", 
+                ephemeral=True
+            )
+        else:
+            await safe_interaction_response(interaction, "❌ Failed to add any items", ephemeral=True)
         
     except Exception as e:
-        logger.error(f"Error adding item: {e}")
-        await safe_interaction_response(interaction, f"❌ Error adding item: {str(e)}", ephemeral=True)
+        logger.error(f"Error adding items: {e}")
+        await safe_interaction_response(interaction, f"❌ Error adding items: {str(e)}", ephemeral=True)
 
 
 @bot.tree.command(name="remove", description="Remove an item from a todo list")
@@ -928,12 +961,12 @@ async def help_command(interaction: discord.Interaction):
         
         # Item management
         embed.add_field(
-            name="✅ Item Management",
-            value="• `/add [item] to [list]` - Add an item to a list\n"
-                  "• `/remove [number] from [list]` - Remove an item by number\n"
-                  "• `/toggle [number] in [list]` - Toggle item completion",
-            inline=False
-        )
+             name="✅ Item Management",
+             value="• `/add [items] to [list]` - Add items to a list (separate multiple items with commas)\n"
+                   "• `/remove [number] from [list]` - Remove an item by number\n"
+                   "• `/toggle [number] in [list]` - Toggle item completion",
+             inline=False
+         )
         
         # Interactive features
         embed.add_field(
