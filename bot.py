@@ -125,10 +125,40 @@ class TodoBot(commands.Bot):
         if isinstance(error, commands.CommandNotFound):
             return
         logger.error(f"Command error: {error}")
-        await ctx.send(f"❌ An error occurred: {str(error)}")
+        try:
+            await ctx.send(f"❌ An error occurred: {str(error)}")
+        except:
+            logger.error("Failed to send error message to user")
 
 
 bot = TodoBot()
+
+
+async def safe_interaction_response(interaction: discord.Interaction, content: str, **kwargs):
+    """Safely respond to an interaction with error handling."""
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(content, **kwargs)
+        else:
+            await interaction.response.send_message(content, **kwargs)
+    except Exception as e:
+        logger.error(f"Failed to respond to interaction: {e}")
+        try:
+            await interaction.followup.send("❌ An error occurred while processing your request.", ephemeral=True)
+        except:
+            pass
+
+
+async def safe_interaction_edit(interaction: discord.Interaction, **kwargs):
+    """Safely edit an interaction message with error handling."""
+    try:
+        await interaction.response.edit_message(**kwargs)
+    except Exception as e:
+        logger.error(f"Failed to edit interaction: {e}")
+        try:
+            await interaction.followup.send("❌ An error occurred while updating the message.", ephemeral=True)
+        except:
+            pass
 
 
 class TodoItemView(discord.ui.View):
@@ -140,44 +170,83 @@ class TodoItemView(discord.ui.View):
         self.todo_list = todo_list
         self.item_index = item_index
         self.item = todo_list.items[item_index]
+    
+    async def on_timeout(self):
+        """Handle view timeout by updating the message."""
+        try:
+            embed = discord.Embed(
+                title="⏰ View Expired",
+                description=f"The interactive view for **{self.todo_list.name}** has timed out after 5 minutes.",
+                color=discord.Color.orange()
+            )
+            embed.add_field(
+                name="How to continue:",
+                value="• Use `/show {self.todo_list.name}` to get a fresh interactive view\n"
+                      "• Use `/pin {self.todo_list.name}` to create a new persistent display\n"
+                      "• Use commands like `/add`, `/toggle`, `/remove` for direct actions",
+                inline=False
+            )
+            embed.set_footer(text="Interactive views expire after 5 minutes for security reasons")
+            
+            # Try to edit the message, fallback to followup if needed
+            try:
+                await self.message.edit(embed=embed, view=None)
+            except:
+                # If we can't edit, try to send a followup
+                try:
+                    await self.message.reply(embed=embed)
+                except:
+                    pass
+        except Exception as e:
+            logger.error(f"Error in TodoItemView timeout: {e}")
         
     @discord.ui.button(label="Toggle", style=discord.ButtonStyle.primary, custom_id="toggle")
     async def toggle_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Toggle the completion status of an item."""
-        success = bot.todo_manager.toggle_item_in_list(
-            self.todo_list.list_id, 
-            self.item.item_id, 
-            str(interaction.user.id)
-        )
-        
-        if success:
-            # Update the item reference
-            self.item = self.todo_list.items[self.item_index]
-            
-            # Update button label
-            toggle_label = "✅ Mark Complete" if not self.item.completed else "⭕ Mark Incomplete"
-            button.label = toggle_label
-            
-            status = "completed" if self.item.completed else "uncompleted"
-            await interaction.response.edit_message(
-                content=f"✅ Item {self.item_index + 1} marked as {status} in **{self.todo_list.name}**",
-                view=self
+        try:
+            success = bot.todo_manager.toggle_item_in_list(
+                self.todo_list.list_id, 
+                self.item.item_id, 
+                str(interaction.user.id)
             )
-        else:
-            await interaction.response.send_message("❌ Failed to toggle item", ephemeral=True)
+            
+            if success:
+                # Update the item reference
+                self.item = self.todo_list.items[self.item_index]
+                
+                # Update button label
+                toggle_label = "✅ Mark Complete" if not self.item.completed else "⭕ Mark Incomplete"
+                button.label = toggle_label
+                
+                status = "completed" if self.item.completed else "uncompleted"
+                await safe_interaction_edit(
+                    interaction,
+                    content=f"✅ Item {self.item_index + 1} marked as {status} in **{self.todo_list.name}**",
+                    view=self
+                )
+            else:
+                await safe_interaction_response(interaction, "❌ Failed to toggle item", ephemeral=True)
+        except Exception as e:
+            logger.error(f"Error in toggle button: {e}")
+            await safe_interaction_response(interaction, "❌ An error occurred while toggling the item", ephemeral=True)
     
     @discord.ui.button(label="🗑️ Remove", style=discord.ButtonStyle.danger, custom_id="remove")
     async def remove_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Remove an item from the todo list."""
-        success = bot.todo_manager.remove_item_from_list(self.todo_list.list_id, self.item.item_id)
-        
-        if success:
-            await interaction.response.edit_message(
-                content=f"✅ Removed item {self.item_index + 1} from **{self.todo_list.name}**",
-                view=None
-            )
-        else:
-            await interaction.response.send_message("❌ Failed to remove item", ephemeral=True)
+        try:
+            success = bot.todo_manager.remove_item_from_list(self.todo_list.list_id, self.item.item_id)
+            
+            if success:
+                await safe_interaction_edit(
+                    interaction,
+                    content=f"✅ Removed item {self.item_index + 1} from **{self.todo_list.name}**",
+                    view=None
+                )
+            else:
+                await safe_interaction_response(interaction, "❌ Failed to remove item", ephemeral=True)
+        except Exception as e:
+            logger.error(f"Error in remove button: {e}")
+            await safe_interaction_response(interaction, "❌ An error occurred while removing the item", ephemeral=True)
 
 
 class InteractiveTodoListView(discord.ui.View):
@@ -188,6 +257,41 @@ class InteractiveTodoListView(discord.ui.View):
         super().__init__(timeout=300)  # 5 minute timeout
         self.todo_list = todo_list
         self._create_item_buttons()
+    
+    async def on_timeout(self):
+        """Handle view timeout by updating the message."""
+        try:
+            embed = discord.Embed(
+                title="⏰ Interactive View Expired",
+                description=f"The interactive view for **{self.todo_list.name}** has timed out after 5 minutes.",
+                color=discord.Color.orange()
+            )
+            embed.add_field(
+                name="How to continue:",
+                value="• Use `/show {self.todo_list.name}` to get a fresh interactive view\n"
+                      "• Use `/pin {self.todo_list.name}` to create a new persistent display\n"
+                      "• Use commands like `/add`, `/toggle`, `/remove` for direct actions",
+                inline=False
+            )
+            embed.add_field(
+                name="Current List Status:",
+                value=f"Items: {len(self.todo_list.items)} | "
+                      f"Completed: {sum(1 for item in self.todo_list.items if item.completed)}",
+                inline=False
+            )
+            embed.set_footer(text="Interactive views expire after 5 minutes for security reasons")
+            
+            # Try to edit the message, fallback to followup if needed
+            try:
+                await self.message.edit(embed=embed, view=None)
+            except:
+                # If we can't edit, try to send a followup
+                try:
+                    await self.message.reply(embed=embed)
+                except:
+                    pass
+        except Exception as e:
+            logger.error(f"Error in InteractiveTodoListView timeout: {e}")
     
     def _create_item_buttons(self):
         """Create individual toggle buttons for each item."""
@@ -224,27 +328,31 @@ class ItemToggleButton(discord.ui.Button):
     
     async def callback(self, interaction: discord.Interaction):
         """Handle button click to toggle item completion."""
-        success = bot.todo_manager.toggle_item_in_list(
-            self.todo_list.list_id, 
-            self.item.item_id, 
-            str(interaction.user.id)
-        )
-        
-        if success:
-            # Update the item reference
-            self.item = self.todo_list.items[self.item_index]
+        try:
+            success = bot.todo_manager.toggle_item_in_list(
+                self.todo_list.list_id, 
+                self.item.item_id, 
+                str(interaction.user.id)
+            )
             
-            # Update button label and style
-            self.label = f"{self.item_index + 1}. {'✅' if self.item.completed else '⭕'}"
-            self.style = discord.ButtonStyle.success if self.item.completed else discord.ButtonStyle.secondary
-            
-            # Update the entire view
-            new_view = InteractiveTodoListView(self.todo_list)
-            embed = create_todo_list_embed(self.todo_list)
-            
-            await interaction.response.edit_message(embed=embed, view=new_view)
-        else:
-            await interaction.response.send_message("❌ Failed to toggle item", ephemeral=True)
+            if success:
+                # Update the item reference
+                self.item = self.todo_list.items[self.item_index]
+                
+                # Update button label and style
+                self.label = f"{self.item_index + 1}. {'✅' if self.item.completed else '⭕'}"
+                self.style = discord.ButtonStyle.success if self.item.completed else discord.ButtonStyle.secondary
+                
+                # Update the entire view
+                new_view = InteractiveTodoListView(self.todo_list)
+                embed = create_todo_list_embed(self.todo_list)
+                
+                await safe_interaction_edit(interaction, embed=embed, view=new_view)
+            else:
+                await safe_interaction_response(interaction, "❌ Failed to toggle item", ephemeral=True)
+        except Exception as e:
+            logger.error(f"Error in item toggle button: {e}")
+            await safe_interaction_response(interaction, "❌ An error occurred while toggling the item", ephemeral=True)
 
 
 class AddItemButton(discord.ui.Button):
@@ -261,7 +369,11 @@ class AddItemButton(discord.ui.Button):
     
     async def callback(self, interaction: discord.Interaction):
         """Handle button click to show add item modal."""
-        await interaction.response.send_modal(AddItemModal(self.todo_list))
+        try:
+            await interaction.response.send_modal(AddItemModal(self.todo_list))
+        except Exception as e:
+            logger.error(f"Error in add item button: {e}")
+            await safe_interaction_response(interaction, "❌ An error occurred while opening the add item modal", ephemeral=True)
 
 
 class RefreshButton(discord.ui.Button):
@@ -278,9 +390,13 @@ class RefreshButton(discord.ui.Button):
     
     async def callback(self, interaction: discord.Interaction):
         """Handle button click to refresh the display."""
-        embed = create_todo_list_embed(self.todo_list)
-        new_view = InteractiveTodoListView(self.todo_list)
-        await interaction.response.edit_message(embed=embed, view=new_view)
+        try:
+            embed = create_todo_list_embed(self.todo_list)
+            new_view = InteractiveTodoListView(self.todo_list)
+            await safe_interaction_edit(interaction, embed=embed, view=new_view)
+        except Exception as e:
+            logger.error(f"Error in refresh button: {e}")
+            await safe_interaction_response(interaction, "❌ An error occurred while refreshing the list", ephemeral=True)
 
 
 class TodoListView(discord.ui.View):
@@ -290,17 +406,54 @@ class TodoListView(discord.ui.View):
         """Initialize the legacy view."""
         super().__init__(timeout=300)  # 5 minute timeout
         self.todo_list = todo_list
+    
+    async def on_timeout(self):
+        """Handle view timeout by updating the message."""
+        try:
+            embed = discord.Embed(
+                title="⏰ Legacy View Expired",
+                description=f"The interactive view for **{self.todo_list.name}** has timed out after 5 minutes.",
+                color=discord.Color.orange()
+            )
+            embed.add_field(
+                name="How to continue:",
+                value="• Use `/show {self.todo_list.name}` to get a fresh interactive view\n"
+                      "• Use `/pin {self.todo_list.name}` to create a new persistent display\n"
+                      "• Use commands like `/add`, `/toggle`, `/remove` for direct actions",
+                inline=False
+            )
+            embed.set_footer(text="Interactive views expire after 5 minutes for security reasons")
+            
+            # Try to edit the message, fallback to followup if needed
+            try:
+                await self.message.edit(embed=embed, view=None)
+            except:
+                # If we can't edit, try to send a followup
+                try:
+                    await self.message.reply(embed=embed)
+                except:
+                    pass
+        except Exception as e:
+            logger.error(f"Error in TodoListView timeout: {e}")
         
     @discord.ui.button(label="➕ Add Item", style=discord.ButtonStyle.success, custom_id="add_item")
     async def add_item_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Handle add item button click."""
-        await interaction.response.send_modal(AddItemModal(self.todo_list))
+        try:
+            await interaction.response.send_modal(AddItemModal(self.todo_list))
+        except Exception as e:
+            logger.error(f"Error in legacy add item button: {e}")
+            await safe_interaction_response(interaction, "❌ An error occurred while opening the add item modal", ephemeral=True)
     
     @discord.ui.button(label="🔄 Refresh", style=discord.ButtonStyle.secondary, custom_id="refresh")
     async def refresh_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Handle refresh button click."""
-        embed = create_todo_list_embed(self.todo_list)
-        await interaction.response.edit_message(embed=embed, view=self)
+        try:
+            embed = create_todo_list_embed(self.todo_list)
+            await safe_interaction_edit(interaction, embed=embed, view=self)
+        except Exception as e:
+            logger.error(f"Error in legacy refresh button: {e}")
+            await safe_interaction_response(interaction, "❌ An error occurred while refreshing the list", ephemeral=True)
 
 
 class AddItemModal(discord.ui.Modal, title="Add Todo Item"):
@@ -320,24 +473,29 @@ class AddItemModal(discord.ui.Modal, title="Add Todo Item"):
     
     async def on_submit(self, interaction: discord.Interaction):
         """Handle modal submission to add the item."""
-        content = self.item_content.value
-        new_item = bot.todo_manager.add_item_to_list(
-            self.todo_list.list_id, 
-            content, 
-            str(interaction.user.id)
-        )
-        
-        if new_item:
-            await interaction.response.send_message(
-                f"✅ Added item to **{self.todo_list.name}**: {content}", 
-                ephemeral=True
+        try:
+            content = self.item_content.value
+            new_item = bot.todo_manager.add_item_to_list(
+                self.todo_list.list_id, 
+                content, 
+                str(interaction.user.id)
             )
-            # Update the original message with the new list
-            embed = create_todo_list_embed(self.todo_list)
-            view = InteractiveTodoListView(self.todo_list)
-            await interaction.message.edit(embed=embed, view=view)
-        else:
-            await interaction.response.send_message("❌ Failed to add item", ephemeral=True)
+            
+            if new_item:
+                await safe_interaction_response(
+                    interaction,
+                    f"✅ Added item to **{self.todo_list.name}**: {content}", 
+                    ephemeral=True
+                )
+                # Update the original message with the new list
+                embed = create_todo_list_embed(self.todo_list)
+                view = InteractiveTodoListView(self.todo_list)
+                await interaction.message.edit(embed=embed, view=view)
+            else:
+                await safe_interaction_response(interaction, "❌ Failed to add item", ephemeral=True)
+        except Exception as e:
+            logger.error(f"Error in add item modal: {e}")
+            await safe_interaction_response(interaction, "❌ An error occurred while adding the item", ephemeral=True)
 
 
 def create_todo_list_embed(todo_list) -> discord.Embed:
@@ -351,57 +509,39 @@ def create_todo_list_embed(todo_list) -> discord.Embed:
     """
     embed = discord.Embed(
         title=f"📋 {todo_list.name}",
-        color=discord.Color.green(),
-        timestamp=discord.utils.utcnow()
+        description=f"Created by <@{todo_list.created_by}>",
+        color=discord.Color.blue()
     )
     
     if not todo_list.items:
-        embed.description = "This list is empty. Click 'Add Item' to get started!"
-        return embed
+        embed.add_field(name="Items", value="No items yet. Add some with the ➕ button!", inline=False)
+    else:
+        items_text = ""
+        for i, item in enumerate(todo_list.items, 1):
+            status = "✅" if item.completed else "⭕"
+            items_text += f"{i}. {status} {item.content}\n"
+        embed.add_field(name="Items", value=items_text, inline=False)
     
-    # Calculate completion stats
-    completed_count = sum(1 for item in todo_list.items if item.completed)
-    total_count = len(todo_list.items)
-    completion_percentage = (completed_count / total_count) * 100 if total_count > 0 else 0
-    
-    embed.description = f"**Progress:** {completed_count}/{total_count} completed ({completion_percentage:.1f}%)"
-    
-    # Add items to embed
-    for i, item in enumerate(todo_list.items, 1):
-        status = "✅" if item.completed else "⭕"
-        
-        embed.add_field(
-            name=f"{i}. {status} {item.content}",
-            value="",  # Empty value for cleaner look
-            inline=False
-        )
-    
+    embed.set_footer(text=f"List ID: {todo_list.list_id}")
     return embed
 
 
-# Bot Commands
+# Command handlers with enhanced error handling
 @bot.tree.command(name="create", description="Create a new todo list")
 @app_commands.describe(name="Name of the todo list")
 async def create_list(interaction: discord.Interaction, name: str):
-    """Create a new todo list in the current server."""
+    """Create a new todo list."""
     try:
         guild_id = str(interaction.guild_id)
-        
-        # Check if list already exists in this guild
-        existing_list = bot.todo_manager.get_list_by_name(name, guild_id)
-        if existing_list:
-            await interaction.response.send_message(
-                f"❌ A todo list named '{name}' already exists in this server!", 
-                ephemeral=True
-            )
-            return
-        
-        # Create new list
         todo_list = bot.todo_manager.create_list(name, str(interaction.user.id), guild_id)
-        await interaction.response.send_message(f"✅ Created todo list: **{name}**", ephemeral=True)
-        
+        await safe_interaction_response(
+            interaction, 
+            f"✅ Created todo list: **{name}**", 
+            ephemeral=True
+        )
     except Exception as e:
-        await interaction.response.send_message(f"❌ Error creating todo list: {str(e)}", ephemeral=True)
+        logger.error(f"Error creating todo list: {e}")
+        await safe_interaction_response(interaction, f"❌ Error creating todo list: {str(e)}", ephemeral=True)
 
 
 @bot.tree.command(name="add", description="Add an item to a todo list")
@@ -414,7 +554,8 @@ async def add_item(interaction: discord.Interaction, list_name: str, item: str):
         # Find the list in this guild
         todo_list = bot.todo_manager.get_list_by_name(list_name, guild_id)
         if not todo_list:
-            await interaction.response.send_message(
+            await safe_interaction_response(
+                interaction,
                 f"❌ Todo list '{list_name}' not found in this server!", 
                 ephemeral=True
             )
@@ -422,10 +563,11 @@ async def add_item(interaction: discord.Interaction, list_name: str, item: str):
         
         # Add item
         new_item = bot.todo_manager.add_item_to_list(todo_list.list_id, item, str(interaction.user.id))
-        await interaction.response.send_message(f"✅ Added item to **{list_name}**: {item}", ephemeral=True)
+        await safe_interaction_response(interaction, f"✅ Added item to **{list_name}**: {item}", ephemeral=True)
         
     except Exception as e:
-        await interaction.response.send_message(f"❌ Error adding item: {str(e)}", ephemeral=True)
+        logger.error(f"Error adding item: {e}")
+        await safe_interaction_response(interaction, f"❌ Error adding item: {str(e)}", ephemeral=True)
 
 
 @bot.tree.command(name="remove", description="Remove an item from a todo list")
@@ -438,7 +580,8 @@ async def remove_item(interaction: discord.Interaction, list_name: str, item_num
         # Find the list in this guild
         todo_list = bot.todo_manager.get_list_by_name(list_name, guild_id)
         if not todo_list:
-            await interaction.response.send_message(
+            await safe_interaction_response(
+                interaction,
                 f"❌ Todo list '{list_name}' not found in this server!", 
                 ephemeral=True
             )
@@ -446,7 +589,8 @@ async def remove_item(interaction: discord.Interaction, list_name: str, item_num
         
         # Check if item number is valid
         if item_number < 1 or item_number > len(todo_list.items):
-            await interaction.response.send_message(
+            await safe_interaction_response(
+                interaction,
                 f"❌ Invalid item number. The list has {len(todo_list.items)} items.", 
                 ephemeral=True
             )
@@ -457,12 +601,17 @@ async def remove_item(interaction: discord.Interaction, list_name: str, item_num
         success = bot.todo_manager.remove_item_from_list(todo_list.list_id, item_to_remove.item_id)
         
         if success:
-            await interaction.response.send_message(f"✅ Removed item {item_number} from **{list_name}**", ephemeral=True)
+            await safe_interaction_response(
+                interaction,
+                f"✅ Removed item {item_number} from **{list_name}**", 
+                ephemeral=True
+            )
         else:
-            await interaction.response.send_message("❌ Failed to remove item", ephemeral=True)
+            await safe_interaction_response(interaction, "❌ Failed to remove item", ephemeral=True)
             
     except Exception as e:
-        await interaction.response.send_message(f"❌ Error removing item: {str(e)}", ephemeral=True)
+        logger.error(f"Error removing item: {e}")
+        await safe_interaction_response(interaction, f"❌ Error removing item: {str(e)}", ephemeral=True)
 
 
 @bot.tree.command(name="toggle", description="Toggle completion status of an item")
@@ -475,7 +624,8 @@ async def toggle_item(interaction: discord.Interaction, list_name: str, item_num
         # Find the list in this guild
         todo_list = bot.todo_manager.get_list_by_name(list_name, guild_id)
         if not todo_list:
-            await interaction.response.send_message(
+            await safe_interaction_response(
+                interaction,
                 f"❌ Todo list '{list_name}' not found in this server!", 
                 ephemeral=True
             )
@@ -483,7 +633,8 @@ async def toggle_item(interaction: discord.Interaction, list_name: str, item_num
         
         # Check if item number is valid
         if item_number < 1 or item_number > len(todo_list.items):
-            await interaction.response.send_message(
+            await safe_interaction_response(
+                interaction,
                 f"❌ Invalid item number. The list has {len(todo_list.items)} items.", 
                 ephemeral=True
             )
@@ -499,15 +650,17 @@ async def toggle_item(interaction: discord.Interaction, list_name: str, item_num
         
         if success:
             status = "completed" if item_to_toggle.completed else "uncompleted"
-            await interaction.response.send_message(
+            await safe_interaction_response(
+                interaction,
                 f"✅ Item {item_number} marked as {status} in **{list_name}**", 
                 ephemeral=True
             )
         else:
-            await interaction.response.send_message("❌ Failed to toggle item", ephemeral=True)
+            await safe_interaction_response(interaction, "❌ Failed to toggle item", ephemeral=True)
             
     except Exception as e:
-        await interaction.response.send_message(f"❌ Error toggling item: {str(e)}", ephemeral=True)
+        logger.error(f"Error toggling item: {e}")
+        await safe_interaction_response(interaction, f"❌ Error toggling item: {str(e)}", ephemeral=True)
 
 
 @bot.tree.command(name="list", description="Show all todo lists")
@@ -518,166 +671,246 @@ async def list_lists(interaction: discord.Interaction):
         todo_lists = bot.todo_manager.get_all_lists(guild_id)
         
         if not todo_lists:
-            await interaction.response.send_message(
-                "📝 No todo lists found in this server. Create one with `/create`!", 
+            await safe_interaction_response(
+                interaction,
+                "📋 No todo lists found in this server. Create one with `/create`!", 
                 ephemeral=True
             )
             return
         
-        embed = discord.Embed(title="📋 Todo Lists", color=discord.Color.blue())
+        embed = discord.Embed(
+            title="📋 Todo Lists",
+            description=f"Found {len(todo_lists)} todo list(s) in this server:",
+            color=discord.Color.green()
+        )
         
         for todo_list in todo_lists:
+            item_count = len(todo_list.items)
             completed_count = sum(1 for item in todo_list.items if item.completed)
-            total_count = len(todo_list.items)
-            
-            status = f"{completed_count}/{total_count} completed"
-            if total_count == 0:
-                status = "Empty"
-            
             embed.add_field(
-                name=f"📝 {todo_list.name}",
-                value=f"Items: {status}\nCreated by: <@{todo_list.created_by}>",
+                name=todo_list.name,
+                value=f"Items: {item_count} | Completed: {completed_count} | Created by <@{todo_list.created_by}>",
                 inline=False
             )
         
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await safe_interaction_response(interaction, embed=embed, ephemeral=True)
         
     except Exception as e:
-        await interaction.response.send_message(f"❌ Error listing todo lists: {str(e)}", ephemeral=True)
+        logger.error(f"Error listing todo lists: {e}")
+        await safe_interaction_response(interaction, f"❌ Error listing todo lists: {str(e)}", ephemeral=True)
 
 
 @bot.tree.command(name="show", description="Show items in a specific todo list")
 @app_commands.describe(list_name="Name of the todo list to show")
 async def show_list(interaction: discord.Interaction, list_name: str):
-    """Show items in a specific todo list with interactive buttons."""
+    """Show items in a specific todo list."""
     try:
         guild_id = str(interaction.guild_id)
-        
-        # Find the list in this guild
         todo_list = bot.todo_manager.get_list_by_name(list_name, guild_id)
+        
         if not todo_list:
-            await interaction.response.send_message(
+            await safe_interaction_response(
+                interaction,
                 f"❌ Todo list '{list_name}' not found in this server!", 
                 ephemeral=True
             )
             return
         
-        # Create embed and view
+        embed = create_todo_list_embed(todo_list)
+        view = InteractiveTodoListView(todo_list)
+        await safe_interaction_response(interaction, embed=embed, view=view, ephemeral=True)
+        
+    except Exception as e:
+        logger.error(f"Error showing todo list: {e}")
+        await safe_interaction_response(interaction, f"❌ Error showing todo list: {str(e)}", ephemeral=True)
+
+
+@bot.tree.command(name="pin", description="Create a persistent todo list display in the channel")
+@app_commands.describe(list_name="Name of the todo list to display")
+async def pin_list(interaction: discord.Interaction, list_name: str):
+    """Create a persistent todo list display in the channel."""
+    try:
+        guild_id = str(interaction.guild_id)
+        todo_list = bot.todo_manager.get_list_by_name(list_name, guild_id)
+        
+        if not todo_list:
+            await safe_interaction_response(
+                interaction,
+                f"❌ Todo list '{list_name}' not found in this server!", 
+                ephemeral=True
+            )
+            return
+        
         embed = create_todo_list_embed(todo_list)
         view = InteractiveTodoListView(todo_list)
         
-        # Send publicly (not ephemeral)
+        # Send to channel (not ephemeral) so it persists as a regular message
         await interaction.response.send_message(embed=embed, view=view)
         
-    except Exception as e:
-        await interaction.response.send_message(f"❌ Error showing todo list: {str(e)}", ephemeral=True)
-
-
-@bot.tree.command(name="pin", description="Pin a todo list to the channel for persistent display")
-@app_commands.describe(list_name="Name of the todo list to pin")
-async def pin_list(interaction: discord.Interaction, list_name: str):
-    """Pin a todo list to the channel for persistent display."""
-    try:
-        guild_id = str(interaction.guild_id)
-        
-        # Find the list in this guild
-        todo_list = bot.todo_manager.get_list_by_name(list_name, guild_id)
-        if not todo_list:
-            await interaction.response.send_message(
-                f"❌ Todo list '{list_name}' not found in this server!", 
-                ephemeral=True
-            )
-            return
-        
-        # Create embed and view
-        embed = create_todo_list_embed(todo_list)
-        view = InteractiveTodoListView(todo_list)
-        
-        # Send as a pinned message (public)
-        message = await interaction.channel.send(embed=embed, view=view)
-        
-        # Pin the message if possible
-        try:
-            await message.pin()
-            await interaction.response.send_message(
-                f"✅ Pinned todo list **{list_name}** to the channel!", 
-                ephemeral=True
-            )
-        except discord.Forbidden:
-            await interaction.response.send_message(
-                f"✅ Posted todo list **{list_name}** to the channel! "
-                "(Note: Bot doesn't have permission to pin messages)", 
-                ephemeral=True
-            )
+        # Send confirmation to user
+        await interaction.followup.send(
+            f"✅ Created persistent display for **{list_name}** in the channel!\n"
+            f"💡 Note: Interactive buttons will expire after 5 minutes. Use `/show {list_name}` to refresh.",
+            ephemeral=True
+        )
         
     except Exception as e:
-        await interaction.response.send_message(f"❌ Error pinning todo list: {str(e)}", ephemeral=True)
+        logger.error(f"Error creating persistent display: {e}")
+        await safe_interaction_response(interaction, f"❌ Error creating display: {str(e)}", ephemeral=True)
 
 
 @bot.tree.command(name="debug", description="List all registered commands (debug)")
 async def debug_commands(interaction: discord.Interaction):
     """List all registered commands for debugging."""
     try:
-        embed = discord.Embed(title="🔧 Registered Commands", color=discord.Color.blue())
+        commands = [cmd.name for cmd in bot.tree.get_commands()]
+        embed = discord.Embed(
+            title="🔧 Debug: Registered Commands",
+            description="Available slash commands:",
+            color=discord.Color.blue()
+        )
         
-        for cmd in bot.tree.get_commands():
-            embed.add_field(
-                name=f"/{cmd.name}",
-                value=f"Description: {cmd.description}\nParameters: {len(cmd.parameters)}",
-                inline=False
-            )
+        for cmd in commands:
+            embed.add_field(name=f"/{cmd}", value="✅ Registered", inline=False)
         
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await safe_interaction_response(interaction, embed=embed, ephemeral=True)
         
     except Exception as e:
-        await interaction.response.send_message(f"❌ Error listing commands: {str(e)}", ephemeral=True)
+        logger.error(f"Error in debug command: {e}")
+        await safe_interaction_response(interaction, f"❌ Error in debug command: {str(e)}", ephemeral=True)
 
 
 @bot.tree.command(name="delete", description="Delete a todo list")
 @app_commands.describe(list_name="Name of the todo list to delete")
 async def delete_list(interaction: discord.Interaction, list_name: str):
-    """Delete a todo list (only creator can delete)."""
+    """Delete a todo list."""
     try:
         guild_id = str(interaction.guild_id)
-        
-        # Find the list in this guild
         todo_list = bot.todo_manager.get_list_by_name(list_name, guild_id)
+        
         if not todo_list:
-            await interaction.response.send_message(
+            await safe_interaction_response(
+                interaction,
                 f"❌ Todo list '{list_name}' not found in this server!", 
                 ephemeral=True
             )
             return
         
-        # Check if user is the creator
-        if todo_list.created_by != str(interaction.user.id):
-            await interaction.response.send_message(
-                "❌ You can only delete todo lists that you created!", 
+        success = bot.todo_manager.delete_list(todo_list.list_id)
+        
+        if success:
+            await safe_interaction_response(
+                interaction,
+                f"✅ Deleted todo list: **{list_name}**", 
+                ephemeral=True
+            )
+        else:
+            await safe_interaction_response(interaction, "❌ Failed to delete todo list", ephemeral=True)
+            
+    except Exception as e:
+        logger.error(f"Error deleting todo list: {e}")
+        await safe_interaction_response(interaction, f"❌ Error deleting todo list: {str(e)}", ephemeral=True)
+
+
+@bot.tree.command(name="help", description="Show help information and commands")
+async def help_command(interaction: discord.Interaction):
+    """Show help information and available commands."""
+    try:
+        embed = discord.Embed(
+            title="📋 Todo Bot Help",
+            description="A Discord bot for managing todo lists with interactive features.",
+            color=discord.Color.blue()
+        )
+        
+        # Basic commands
+        embed.add_field(
+            name="📝 List Management",
+            value="• `/create [name]` - Create a new todo list\n"
+                  "• `/list` - Show all todo lists in this server\n"
+                  "• `/show [name]` - Display a todo list with interactive buttons\n"
+                  "• `/pin [name]` - Create a persistent display in the channel\n"
+                  "• `/delete [name]` - Delete a todo list",
+            inline=False
+        )
+        
+        # Item management
+        embed.add_field(
+            name="✅ Item Management",
+            value="• `/add [item] to [list]` - Add an item to a list\n"
+                  "• `/remove [number] from [list]` - Remove an item by number\n"
+                  "• `/toggle [number] in [list]` - Toggle item completion",
+            inline=False
+        )
+        
+        # Interactive features
+        embed.add_field(
+            name="🔄 Interactive Features",
+            value="• Interactive views have buttons for quick actions\n"
+                  "• Views expire after 5 minutes for security\n"
+                  "• Use `/show [name]` to refresh expired views\n"
+                  "• Use `/pin [name]` for persistent displays",
+            inline=False
+        )
+        
+        # Troubleshooting
+        embed.add_field(
+            name="🔧 Troubleshooting",
+            value="• **View expired?** Use `/show [name]` to refresh\n"
+                  "• **Bot offline?** Check if Render server is running\n"
+                  "• **Commands not working?** Use `/debug` to check status\n"
+                  "• **Need help?** Contact the bot administrator",
+            inline=False
+        )
+        
+        embed.set_footer(text="Tip: Use commands for quick actions, interactive views for detailed work")
+        
+        await safe_interaction_response(interaction, embed=embed, ephemeral=True)
+        
+    except Exception as e:
+        logger.error(f"Error in help command: {e}")
+        await safe_interaction_response(interaction, f"❌ Error showing help: {str(e)}", ephemeral=True)
+
+
+@bot.tree.command(name="refresh", description="Create a fresh interactive view for a todo list")
+@app_commands.describe(list_name="Name of the todo list to refresh")
+async def refresh_list(interaction: discord.Interaction, list_name: str):
+    """Create a fresh interactive view for a todo list."""
+    try:
+        guild_id = str(interaction.guild_id)
+        todo_list = bot.todo_manager.get_list_by_name(list_name, guild_id)
+        
+        if not todo_list:
+            await safe_interaction_response(
+                interaction,
+                f"❌ Todo list '{list_name}' not found in this server!", 
                 ephemeral=True
             )
             return
         
-        # Delete list
-        success = bot.todo_manager.delete_list(todo_list.list_id)
+        embed = create_todo_list_embed(todo_list)
+        view = InteractiveTodoListView(todo_list)
         
-        if success:
-            await interaction.response.send_message(f"✅ Deleted todo list: **{list_name}**", ephemeral=True)
-        else:
-            await interaction.response.send_message("❌ Failed to delete todo list", ephemeral=True)
-            
+        await safe_interaction_response(
+            interaction, 
+            f"🔄 Created fresh interactive view for **{list_name}**!", 
+            ephemeral=True
+        )
+        
+        # Send the refreshed view to the channel
+        await interaction.channel.send(embed=embed, view=view)
+        
     except Exception as e:
-        await interaction.response.send_message(f"❌ Error deleting todo list: {str(e)}", ephemeral=True)
+        logger.error(f"Error refreshing todo list: {e}")
+        await safe_interaction_response(interaction, f"❌ Error refreshing list: {str(e)}", ephemeral=True)
 
 
 @bot.event
 async def on_ready():
-    """Event handler for when bot is ready."""
+    """Called when the bot is ready."""
     logger.info(f"Logged in as {bot.user}")
-    logger.info(f"Bot is in {len(bot.guilds)} guild(s)")
-    print(f"✅ Bot is online! Logged in as {bot.user}")
-    print(f"📊 Bot is in {len(bot.guilds)} guild(s)")
+    print(f"✅ Bot is online as {bot.user}")
     
-    # Log guild information for debugging
+    # Log guild information
     for guild in bot.guilds:
         logger.info(f"Connected to guild: {guild.name} (ID: {guild.id})")
 

@@ -79,14 +79,21 @@ class TestBotIntegration(unittest.TestCase):
         """Test that data persists through bot restarts"""
         try:
             from todo_manager import TodoManager
+            import os
+            
+            # Use a file path in the test directory
+            test_file = os.path.join(self.test_dir, "test_todo_lists.json")
             
             # Create data with first manager
-            manager1 = TodoManager("test_todo_lists.json")
+            manager1 = TodoManager(test_file)
             todo_list = manager1.create_list("Integration Test", "user123", "guild456")
             manager1.add_item_to_list(todo_list.list_id, "Test item", "user123")
             
+            # Force save to ensure data is persisted
+            manager1.force_save()
+            
             # Create new manager (simulates bot restart)
-            manager2 = TodoManager("test_todo_lists.json")
+            manager2 = TodoManager(test_file)
             
             # Verify data persisted
             loaded_list = manager2.get_list_by_name("Integration Test", "guild456")
@@ -103,8 +110,12 @@ class TestBotIntegration(unittest.TestCase):
         """Test that guild isolation works in integration"""
         try:
             from todo_manager import TodoManager
+            import os
             
-            manager = TodoManager("test_todo_lists.json")
+            # Use a file path in the test directory
+            test_file = os.path.join(self.test_dir, "test_todo_lists.json")
+            
+            manager = TodoManager(test_file)
             
             # Create lists in different guilds
             list1 = manager.create_list("Shopping", "user1", "guild1")
@@ -129,8 +140,12 @@ class TestBotIntegration(unittest.TestCase):
         """Test user permissions work correctly"""
         try:
             from todo_manager import TodoManager
+            import os
             
-            manager = TodoManager("test_todo_lists.json")
+            # Use a file path in the test directory
+            test_file = os.path.join(self.test_dir, "test_todo_lists.json")
+            
+            manager = TodoManager(test_file)
             
             # Create list with user1
             todo_list = manager.create_list("Test List", "user1", "guild1")

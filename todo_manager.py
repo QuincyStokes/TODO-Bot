@@ -63,12 +63,17 @@ class TodoItem:
         Returns:
             TodoItem instance
         """
-        item = cls(data['content'], data['created_by'], data['item_id'])
-        item.completed = data['completed']
-        item.completed_by = data['completed_by']
-        item.completed_at = data['completed_at']
-        item.created_at = data['created_at']
-        return item
+        try:
+            item = cls(data.get('content', ''), data.get('created_by', ''), data.get('item_id'))
+            item.completed = data.get('completed', False)
+            item.completed_by = data.get('completed_by')
+            item.completed_at = data.get('completed_at')
+            item.created_at = data.get('created_at', datetime.now().isoformat())
+            return item
+        except Exception as e:
+            print(f"Error creating TodoItem from dict: {e}")
+            # Return a default item if data is corrupted
+            return cls("Corrupted item", "unknown", data.get('item_id'))
 
 
 class TodoList:
@@ -105,7 +110,7 @@ class TodoList:
         return item
     
     def remove_item(self, item_id: str) -> bool:
-        """Remove an item from this list by ID.
+        """Remove an item from this list.
         
         Args:
             item_id: ID of the item to remove
@@ -124,21 +129,20 @@ class TodoList:
         
         Args:
             item_id: ID of the item to toggle
-            user_id: User ID performing the toggle
+            user_id: User ID of who is toggling the item
             
         Returns:
             True if item was toggled, False if not found
         """
         for item in self.items:
             if item.item_id == item_id:
+                item.completed = not item.completed
                 if item.completed:
-                    item.completed = False
-                    item.completed_by = None
-                    item.completed_at = None
-                else:
-                    item.completed = True
                     item.completed_by = user_id
                     item.completed_at = datetime.now().isoformat()
+                else:
+                    item.completed_by = None
+                    item.completed_at = None
                 return True
         return False
     
@@ -166,9 +170,9 @@ class TodoList:
             'name': self.name,
             'created_by': self.created_by,
             'guild_id': self.guild_id,
+            'items': [item.to_dict() for item in self.items],
             'created_at': self.created_at,
-            'list_id': self.list_id,
-            'items': [item.to_dict() for item in self.items]
+            'list_id': self.list_id
         }
     
     @classmethod
@@ -181,10 +185,30 @@ class TodoList:
         Returns:
             TodoList instance
         """
-        todo_list = cls(data['name'], data['created_by'], data['guild_id'], data['list_id'])
-        todo_list.created_at = data['created_at']
-        todo_list.items = [TodoItem.from_dict(item_data) for item_data in data['items']]
-        return todo_list
+        try:
+            todo_list = cls(
+                data.get('name', 'Unknown List'),
+                data.get('created_by', 'unknown'),
+                data.get('guild_id', 'unknown'),
+                data.get('list_id')
+            )
+            todo_list.created_at = data.get('created_at', datetime.now().isoformat())
+            
+            # Load items with error handling
+            items_data = data.get('items', [])
+            for item_data in items_data:
+                try:
+                    item = TodoItem.from_dict(item_data)
+                    todo_list.items.append(item)
+                except Exception as e:
+                    print(f"Error loading item: {e}")
+                    continue
+            
+            return todo_list
+        except Exception as e:
+            print(f"Error creating TodoList from dict: {e}")
+            # Return a default list if data is corrupted
+            return cls("Corrupted List", "unknown", "unknown", data.get('list_id'))
 
 
 class TodoManager:
@@ -196,7 +220,11 @@ class TodoManager:
         Args:
             storage_file: Name of the JSON file for persistent storage
         """
-        self.storage_file = os.path.join(DATA_DIR, storage_file)
+        # Handle both relative and absolute paths
+        if os.path.isabs(storage_file):
+            self.storage_file = storage_file
+        else:
+            self.storage_file = os.path.join(DATA_DIR, storage_file)
         self.todo_lists: Dict[str, TodoList] = {}
         self._last_save_time = 0
         self._save_interval = 0.1  # Save at most once per 0.1 seconds (more frequent)
@@ -207,21 +235,25 @@ class TodoManager:
         self.force_save()
     
     def load_lists(self):
-        """Load todo lists from JSON file."""
+        """Load todo lists from JSON file with error handling."""
         if os.path.exists(self.storage_file):
             try:
                 with open(self.storage_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                    self.todo_lists = {
-                        list_id: TodoList.from_dict(list_data)
-                        for list_id, list_data in data.items()
-                    }
-            except (json.JSONDecodeError, KeyError) as e:
+                    self.todo_lists = {}
+                    for list_id, list_data in data.items():
+                        try:
+                            todo_list = TodoList.from_dict(list_data)
+                            self.todo_lists[list_id] = todo_list
+                        except Exception as e:
+                            print(f"Error loading todo list {list_id}: {e}")
+                            continue
+            except (json.JSONDecodeError, KeyError, IOError) as e:
                 print(f"Error loading todo lists: {e}")
                 self.todo_lists = {}
     
     def save_lists(self):
-        """Save todo lists to JSON file with rate limiting."""
+        """Save todo lists to JSON file with rate limiting and error handling."""
         current_time = time.time()
         
         # Only save if enough time has passed since last save
@@ -229,23 +261,46 @@ class TodoManager:
             return
         
         try:
-            data = {
-                list_id: todo_list.to_dict()
-                for list_id, todo_list in self.todo_lists.items()
-            }
-            with open(self.storage_file, 'w', encoding='utf-8') as f:
+            data = {}
+            for list_id, todo_list in self.todo_lists.items():
+                try:
+                    data[list_id] = todo_list.to_dict()
+                except Exception as e:
+                    print(f"Error serializing todo list {list_id}: {e}")
+                    continue
+            
+            # Create backup before writing
+            if os.path.exists(self.storage_file):
+                backup_file = f"{self.storage_file}.backup"
+                try:
+                    import shutil
+                    shutil.copy2(self.storage_file, backup_file)
+                except Exception as e:
+                    print(f"Error creating backup: {e}")
+            
+            # Write to temporary file first, then rename
+            temp_file = f"{self.storage_file}.tmp"
+            with open(temp_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
+            
+            # Atomic rename
+            os.replace(temp_file, self.storage_file)
             self._last_save_time = current_time
+            
         except Exception as e:
             print(f"Error saving todo lists: {e}")
     
     def force_save(self):
         """Force save regardless of rate limiting."""
         try:
-            data = {
-                list_id: todo_list.to_dict()
-                for list_id, todo_list in self.todo_lists.items()
-            }
+            data = {}
+            for list_id, todo_list in self.todo_lists.items():
+                try:
+                    data[list_id] = todo_list.to_dict()
+                except Exception as e:
+                    print(f"Error serializing todo list {list_id}: {e}")
+                    continue
+            
             with open(self.storage_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
             self._last_save_time = time.time()
@@ -290,7 +345,7 @@ class TodoManager:
             TodoList if found, None otherwise
         """
         for todo_list in self.todo_lists.values():
-            if todo_list.name.lower() == name.lower() and todo_list.guild_id == guild_id:
+            if todo_list.name == name and todo_list.guild_id == guild_id:
                 return todo_list
         return None
     
@@ -318,7 +373,10 @@ class TodoManager:
         Returns:
             List of TodoList objects for the guild
         """
-        return [todo_list for todo_list in self.todo_lists.values() if todo_list.guild_id == guild_id]
+        return [
+            todo_list for todo_list in self.todo_lists.values()
+            if todo_list.guild_id == guild_id
+        ]
     
     def add_item_to_list(self, list_id: str, content: str, created_by: str) -> Optional[TodoItem]:
         """Add an item to a specific todo list.
@@ -329,7 +387,7 @@ class TodoManager:
             created_by: User ID of who created the item
             
         Returns:
-            TodoItem if added successfully, None if list not found
+            The created TodoItem if successful, None otherwise
         """
         todo_list = self.get_list(list_id)
         if todo_list:
@@ -357,12 +415,12 @@ class TodoManager:
         return False
     
     def toggle_item_in_list(self, list_id: str, item_id: str, user_id: str) -> bool:
-        """Toggle completion status of an item in a specific list.
+        """Toggle the completion status of an item in a specific todo list.
         
         Args:
             list_id: ID of the list containing the item
             item_id: ID of the item to toggle
-            user_id: User ID performing the toggle
+            user_id: User ID of who is toggling the item
             
         Returns:
             True if item was toggled, False if not found
