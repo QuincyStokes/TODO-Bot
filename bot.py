@@ -372,6 +372,7 @@ class AddItemButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         """Handle button click to show add item modal."""
         try:
+            logger.info(f"AddItemButton clicked for list: {self.todo_list.name}")
             await interaction.response.send_modal(AddItemModal(self.todo_list))
         except Exception as e:
             logger.error(f"Error in add item button: {e}")
@@ -464,6 +465,7 @@ class AddItemModal(discord.ui.Modal, title="Add Todo Item"):
         """Initialize the modal with a todo list."""
         super().__init__()
         self.todo_list = todo_list
+        logger.info(f"AddItemModal initialized for list: {todo_list.name} (ID: {todo_list.list_id})")
         
     item_content = discord.ui.TextInput(
         label="Item Description",
@@ -476,6 +478,8 @@ class AddItemModal(discord.ui.Modal, title="Add Todo Item"):
         """Handle modal submission to add the item."""
         try:
             content = self.item_content.value
+            logger.info(f"Adding item '{content}' to list '{self.todo_list.name}' (ID: {self.todo_list.list_id})")
+            
             new_item = bot.todo_manager.add_item_to_list(
                 self.todo_list.list_id, 
                 content, 
@@ -483,16 +487,25 @@ class AddItemModal(discord.ui.Modal, title="Add Todo Item"):
             )
             
             if new_item:
+                logger.info(f"Successfully added item to list. New item ID: {new_item.item_id}")
+                # Send confirmation message
                 await safe_interaction_response(
                     interaction,
                     f"✅ Added item to **{self.todo_list.name}**: {content}", 
                     ephemeral=True
                 )
-                # Update the original message with the new list
-                embed = create_todo_list_embed(self.todo_list)
-                view = InteractiveTodoListView(self.todo_list)
-                await interaction.message.edit(embed=embed, view=view)
+                
+                # Try to update the original message, but don't fail if it doesn't work
+                try:
+                    embed = create_todo_list_embed(self.todo_list)
+                    view = InteractiveTodoListView(self.todo_list)
+                    await interaction.message.edit(embed=embed, view=view)
+                    logger.info("Successfully updated original message with new item")
+                except Exception as edit_error:
+                    logger.warning(f"Could not update original message: {edit_error}")
+                    # The item was still added successfully, so we don't need to fail
             else:
+                logger.error("Failed to add item - add_item_to_list returned None")
                 await safe_interaction_response(interaction, "❌ Failed to add item", ephemeral=True)
         except Exception as e:
             logger.error(f"Error in add item modal: {e}")
