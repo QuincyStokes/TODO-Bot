@@ -21,3 +21,21 @@
 2025-08-03 10:24:29,985 - bot - INFO - Database enabled: True
 2025-08-03 10:24:29,986 - bot - INFO - Database path: /opt/render/project/src/data\todo_bot.db
 2025-08-03 10:24:29,991 - bot - INFO - TodoManager initialized successfully. Loaded 1 lists
+2025-08-03 10:42:37,082 - discord.client - WARNING - PyNaCl is not installed, voice will NOT be supported
+2025-08-03 10:42:37,083 - bot - INFO - Initializing TodoManager with DATA_DIR: /opt/render/project/src/data
+2025-08-03 10:42:37,083 - bot - INFO - Database enabled: True
+2025-08-03 10:42:37,083 - bot - INFO - Database path: /opt/render/project/src/data\todo_bot.db
+2025-08-03 10:42:37,088 - bot - INFO - TodoManager initialized successfully. Loaded 1 lists
+2025-08-03 10:42:44,876 - discord.client - WARNING - PyNaCl is not installed, voice will NOT be supported
+2025-08-03 10:42:44,876 - bot - INFO - Initializing TodoManager with DATA_DIR: /opt/render/project/src/data
+2025-08-03 10:42:44,877 - bot - INFO - Database enabled: True
+2025-08-03 10:42:44,877 - bot - INFO - Database path: /opt/render/project/src/data\todo_bot.db
+2025-08-03 10:42:44,881 - bot - INFO - TodoManager initialized successfully. Loaded 0 lists
+2025-08-03 10:42:44,883 - bot - INFO - Initializing TodoManager with DATA_DIR: /opt/render/project/src/data
+2025-08-03 10:42:44,884 - bot - INFO - Database enabled: True
+2025-08-03 10:42:44,884 - bot - INFO - Database path: /opt/render/project/src/data\todo_bot.db
+2025-08-03 10:42:44,886 - bot - INFO - TodoManager initialized successfully. Loaded 0 lists
+2025-08-03 10:42:44,900 - bot - INFO - Initializing TodoManager with DATA_DIR: /opt/render/project/src/data
+2025-08-03 10:42:44,900 - bot - INFO - Database enabled: True
+2025-08-03 10:42:44,900 - bot - INFO - Database path: /opt/render/project/src/data\todo_bot.db
+2025-08-03 10:42:44,904 - bot - INFO - TodoManager initialized successfully. Loaded 0 lists

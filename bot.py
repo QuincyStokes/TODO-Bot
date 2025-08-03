@@ -297,7 +297,7 @@ class InteractiveTodoListView(discord.ui.View):
             )
             embed.add_field(
                 name="How to continue:",
-                value="• Use `/show {self.todo_list.name}` to get a fresh interactive view\n"
+                value=f"• Use `/show {self.todo_list.name}` to get a fresh interactive view\n"
                       "• Use commands like `/add`, `/toggle`, `/remove` for direct actions",
                 inline=False
             )
@@ -446,7 +446,7 @@ class TodoListView(discord.ui.View):
             )
             embed.add_field(
                 name="How to continue:",
-                value="• Use `/show {self.todo_list.name}` to get a fresh interactive view\n"
+                value=f"• Use `/show {self.todo_list.name}` to get a fresh interactive view\n"
                       "• Use commands like `/add`, `/toggle`, `/remove` for direct actions",
                 inline=False
             )
@@ -870,139 +870,7 @@ async def debug_commands(interaction: discord.Interaction):
         logger.error(f"Error in debug command: {e}")
         await safe_interaction_response(interaction, f"❌ Error in debug command: {str(e)}", ephemeral=True)
 
-@bot.tree.command(name="dbinfo", description="Show database information (debug)")
-async def database_info(interaction: discord.Interaction):
-    """Show database configuration and status."""
-    try:
-        import os
-        import config
-        import sqlite3
-        
-        embed = discord.Embed(
-            title="🗄️ Database Information",
-            color=discord.Color.blue()
-        )
-        
-        # Database configuration
-        embed.add_field(
-            name="Configuration",
-            value=f"**DATA_DIR:** {config.DATA_DIR}\n"
-                  f"**USE_DATABASE:** {config.USE_DATABASE}\n"
-                  f"**DATABASE_PATH:** {config.DATABASE_PATH}\n"
-                  f"**Directory exists:** {os.path.exists(config.DATA_DIR)}",
-            inline=False
-        )
-        
-        # Database file status
-        if config.USE_DATABASE and config.DATABASE_PATH:
-            db_exists = os.path.exists(config.DATABASE_PATH)
-            db_size = os.path.getsize(config.DATABASE_PATH) if db_exists else 0
-            embed.add_field(
-                name="Database File",
-                value=f"**Exists:** {db_exists}\n"
-                      f"**Size:** {db_size} bytes\n"
-                      f"**Path:** {config.DATABASE_PATH}",
-                inline=False
-            )
-            
-            # Check database structure if it exists
-            if db_exists:
-                try:
-                    conn = sqlite3.connect(config.DATABASE_PATH)
-                    cursor = conn.cursor()
-                    
-                    # Check tables
-                    cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-                    tables = cursor.fetchall()
-                    table_names = [table[0] for table in tables]
-                    
-                    # Check todo_lists table
-                    if 'todo_lists' in table_names:
-                        cursor.execute("SELECT COUNT(*) FROM todo_lists")
-                        list_count = cursor.fetchone()[0]
-                        
-                        # Check todo_items table
-                        cursor.execute("SELECT COUNT(*) FROM todo_items")
-                        item_count = cursor.fetchone()[0]
-                        
-                        embed.add_field(
-                            name="Database Content",
-                            value=f"**Todo Lists:** {list_count}\n"
-                                  f"**Todo Items:** {item_count}\n"
-                                  f"**Tables:** {', '.join(table_names)}",
-                            inline=False
-                        )
-                    else:
-                        embed.add_field(
-                            name="Database Content",
-                            value="❌ **todo_lists table not found!**\n"
-                                  f"**Tables:** {', '.join(table_names)}",
-                            inline=False
-                        )
-                    
-                    conn.close()
-                    
-                except Exception as e:
-                    embed.add_field(
-                        name="Database Content",
-                        value=f"❌ **Error reading database:** {str(e)}",
-                        inline=False
-                    )
-        
-        # JSON fallback status
-        json_path = os.path.join(config.DATA_DIR, 'todo_lists.json')
-        json_exists = os.path.exists(json_path)
-        json_size = os.path.getsize(json_path) if json_exists else 0
-        embed.add_field(
-            name="JSON Fallback",
-            value=f"**Exists:** {json_exists}\n"
-                  f"**Size:** {json_size} bytes\n"
-                  f"**Path:** {json_path}",
-            inline=False
-        )
-        
-        # Current data status
-        total_lists = len(bot.todo_manager.todo_lists)
-        guild_lists = bot.todo_manager.get_all_lists(str(interaction.guild_id))
-        embed.add_field(
-            name="Current Data",
-            value=f"**Total lists in memory:** {total_lists}\n"
-                  f"**Lists for this guild:** {len(guild_lists)}",
-            inline=False
-        )
-        
-        # Show all lists for this guild
-        if guild_lists:
-            list_details = []
-            for todo_list in guild_lists:
-                list_details.append(f"• **{todo_list.name}** (ID: {todo_list.list_id}) - {len(todo_list.items)} items")
-            embed.add_field(
-                name="Guild Lists",
-                value="\n".join(list_details),
-                inline=False
-            )
-        else:
-            embed.add_field(
-                name="Guild Lists",
-                value="❌ **No lists found for this guild**",
-                inline=False
-            )
-        
-        # Add troubleshooting tips
-        embed.add_field(
-            name="💡 Troubleshooting",
-            value="• Use `/reload` to force reload data\n"
-                  "• Use `/forcesave` to force save data\n"
-                  "• Check Render logs for errors\n"
-                  "• Verify disk is properly mounted",
-            inline=False
-        )
-        
-        await safe_interaction_response(interaction, "", embed=embed, ephemeral=True)
-        
-    except Exception as e:
-        logger.error(f"Database info command error: {e}")
-        await safe_interaction_response(interaction, f"❌ Database info error: {str(e)}", ephemeral=True)
+
 
 
 @bot.tree.command(name="delete", description="Delete a todo list")
@@ -1230,120 +1098,10 @@ async def refresh_list(interaction: discord.Interaction, list_name: str):
         await safe_interaction_response(interaction, f"❌ Error refreshing list: {str(e)}", ephemeral=True)
 
 
-@bot.tree.command(name="reload", description="Force reload data from storage (debug)")
-async def reload_data(interaction: discord.Interaction):
-    """Force reload all data from storage."""
-    try:
-        # Check if user has admin permissions
-        if not interaction.user.guild_permissions.administrator:
-            await safe_interaction_response(
-                interaction,
-                "❌ This command requires administrator permissions!", 
-                ephemeral=True
-            )
-            return
-        
-        # Store current count for comparison
-        old_count = len(bot.todo_manager.todo_lists)
-        
-        # Force reload data
-        if config.USE_DATABASE:
-            bot.todo_manager._load_from_database()
-        else:
-            bot.todo_manager.load_lists()
-        
-        new_count = len(bot.todo_manager.todo_lists)
-        
-        embed = discord.Embed(
-            title="🔄 Data Reload Complete",
-            color=discord.Color.green()
-        )
-        
-        embed.add_field(
-            name="Results",
-            value=f"**Before:** {old_count} lists\n**After:** {new_count} lists\n**Change:** {new_count - old_count}",
-            inline=False
-        )
-        
-        # Show lists for this guild
-        guild_lists = bot.todo_manager.get_all_lists(str(interaction.guild_id))
-        if guild_lists:
-            list_names = [l.name for l in guild_lists]
-            embed.add_field(
-                name=f"Lists for this Guild ({len(guild_lists)})",
-                value="\n".join(list_names),
-                inline=False
-            )
-        else:
-            embed.add_field(
-                name="Lists for this Guild",
-                value="No lists found",
-                inline=False
-            )
-        
-        await safe_interaction_response(interaction, "", embed=embed, ephemeral=True)
-        
-    except Exception as e:
-        logger.error(f"Error reloading data: {e}")
-        await safe_interaction_response(interaction, f"❌ Error reloading data: {str(e)}", ephemeral=True)
 
 
-@bot.tree.command(name="forcesave", description="Force save all data to storage (debug)")
-async def force_save_data(interaction: discord.Interaction):
-    """Force save all data to storage."""
-    try:
-        # Check if user has admin permissions
-        if not interaction.user.guild_permissions.administrator:
-            await safe_interaction_response(
-                interaction,
-                "❌ This command requires administrator permissions!", 
-                ephemeral=True
-            )
-            return
-        
-        # Store current count
-        list_count = len(bot.todo_manager.todo_lists)
-        
-        # Force save data
-        bot.todo_manager.force_save()
-        
-        embed = discord.Embed(
-            title="💾 Force Save Complete",
-            color=discord.Color.green()
-        )
-        
-        embed.add_field(
-            name="Results",
-            value=f"**Lists saved:** {list_count}\n**Storage type:** {'Database' if config.USE_DATABASE else 'JSON'}",
-            inline=False
-        )
-        
-        # Show storage info
-        if config.USE_DATABASE:
-            import os
-            if os.path.exists(config.DATABASE_PATH):
-                db_size = os.path.getsize(config.DATABASE_PATH)
-                embed.add_field(
-                    name="Database Info",
-                    value=f"**Path:** {config.DATABASE_PATH}\n**Size:** {db_size} bytes",
-                    inline=False
-                )
-        else:
-            import os
-            json_path = os.path.join(config.DATA_DIR, 'todo_lists.json')
-            if os.path.exists(json_path):
-                json_size = os.path.getsize(json_path)
-                embed.add_field(
-                    name="JSON Info",
-                    value=f"**Path:** {json_path}\n**Size:** {json_size} bytes",
-                    inline=False
-                )
-        
-        await safe_interaction_response(interaction, "", embed=embed, ephemeral=True)
-        
-    except Exception as e:
-        logger.error(f"Error force saving data: {e}")
-        await safe_interaction_response(interaction, f"❌ Error force saving data: {str(e)}", ephemeral=True)
+
+
 
 
 @bot.event
