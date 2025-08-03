@@ -9,6 +9,7 @@ import json
 import os
 import time
 import uuid
+import sqlite3
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -16,6 +17,11 @@ from typing import Dict, List, Optional
 DATA_DIR = os.environ.get('DATA_DIR', '/opt/render/project/src/data')
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR, exist_ok=True)
+
+# Database configuration
+USE_DATABASE = os.environ.get('USE_DATABASE', 'true').lower() == 'true'
+DATABASE_PATH = os.path.join(DATA_DIR, 'todo_bot.db')
+JSON_FALLBACK = os.path.join(DATA_DIR, 'todo_lists.json')
 
 
 class TodoItem:
@@ -218,94 +224,75 @@ class TodoManager:
         """Initialize the todo manager.
         
         Args:
-            storage_file: Name of the JSON file for persistent storage
+            storage_file: Path to the storage file (relative to DATA_DIR)
         """
-        # Handle both relative and absolute paths
+        # Handle absolute vs relative paths
         if os.path.isabs(storage_file):
             self.storage_file = storage_file
         else:
             self.storage_file = os.path.join(DATA_DIR, storage_file)
+        
         self.todo_lists: Dict[str, TodoList] = {}
-        self._last_save_time = 0
-        self._save_interval = 0.1  # Save at most once per 0.1 seconds (more frequent)
-        self.load_lists()
+        self._save_interval = 5  # seconds
+        self._last_save = 0
+        
+        # Initialize database if enabled
+        if USE_DATABASE:
+            self._init_database()
+            self._migrate_from_json()
+        else:
+            self.load_lists()
     
     def __del__(self):
         """Destructor to ensure data is saved."""
         self.force_save()
     
     def load_lists(self):
-        """Load todo lists from JSON file with error handling."""
-        if os.path.exists(self.storage_file):
-            try:
-                with open(self.storage_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    self.todo_lists = {}
-                    for list_id, list_data in data.items():
-                        try:
-                            todo_list = TodoList.from_dict(list_data)
-                            self.todo_lists[list_id] = todo_list
-                        except Exception as e:
-                            print(f"Error loading todo list {list_id}: {e}")
-                            continue
-            except (json.JSONDecodeError, KeyError, IOError) as e:
-                print(f"Error loading todo lists: {e}")
-                self.todo_lists = {}
-    
-    def save_lists(self):
-        """Save todo lists to JSON file with rate limiting and error handling."""
-        current_time = time.time()
-        
-        # Only save if enough time has passed since last save
-        if current_time - self._last_save_time < self._save_interval:
+        """Load todo lists from storage."""
+        if USE_DATABASE:
+            self._load_from_database()
             return
         
         try:
-            data = {}
-            for list_id, todo_list in self.todo_lists.items():
-                try:
-                    data[list_id] = todo_list.to_dict()
-                except Exception as e:
-                    print(f"Error serializing todo list {list_id}: {e}")
-                    continue
-            
-            # Create backup before writing
             if os.path.exists(self.storage_file):
-                backup_file = f"{self.storage_file}.backup"
-                try:
-                    import shutil
-                    shutil.copy2(self.storage_file, backup_file)
-                except Exception as e:
-                    print(f"Error creating backup: {e}")
-            
-            # Write to temporary file first, then rename
-            temp_file = f"{self.storage_file}.tmp"
-            with open(temp_file, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-            
-            # Atomic rename
-            os.replace(temp_file, self.storage_file)
-            self._last_save_time = current_time
-            
+                with open(self.storage_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                
+                self.todo_lists.clear()
+                for list_id, list_data in data.items():
+                    try:
+                        todo_list = TodoList.from_dict(list_data)
+                        self.todo_lists[list_id] = todo_list
+                    except Exception as e:
+                        print(f"Error loading list {list_id}: {e}")
+                        continue
+                
+                print(f"Loaded {len(self.todo_lists)} lists from JSON")
+            else:
+                print("No existing data file found, starting fresh")
         except Exception as e:
-            print(f"Error saving todo lists: {e}")
+            print(f"Error loading todo lists: {e}")
+            self.todo_lists.clear()
+    
+    def save_lists(self):
+        """Save todo lists to storage with rate limiting."""
+        current_time = time.time()
+        if current_time - self._last_save < self._save_interval:
+            return
+        
+        if USE_DATABASE:
+            self._save_to_database()
+        else:
+            self._save_to_json()
+        
+        self._last_save = current_time
     
     def force_save(self):
-        """Force save regardless of rate limiting."""
-        try:
-            data = {}
-            for list_id, todo_list in self.todo_lists.items():
-                try:
-                    data[list_id] = todo_list.to_dict()
-                except Exception as e:
-                    print(f"Error serializing todo list {list_id}: {e}")
-                    continue
-            
-            with open(self.storage_file, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-            self._last_save_time = time.time()
-        except Exception as e:
-            print(f"Error saving todo lists: {e}")
+        """Force save todo lists immediately."""
+        if USE_DATABASE:
+            self._save_to_database()
+        else:
+            self._save_to_json()
     
     def create_list(self, name: str, created_by: str, guild_id: str) -> TodoList:
         """Create a new todo list.
@@ -470,3 +457,253 @@ class TodoManager:
                 self.save_lists()
             return success
         return False 
+
+    def _init_database(self):
+        """Initialize the SQLite database with required tables."""
+        try:
+            conn = sqlite3.connect(DATABASE_PATH)
+            cursor = conn.cursor()
+            
+            # Create lists table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS todo_lists (
+                    list_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    created_by TEXT NOT NULL,
+                    guild_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+            ''')
+            
+            # Create items table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS todo_items (
+                    item_id TEXT PRIMARY KEY,
+                    list_id TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    created_by TEXT NOT NULL,
+                    completed BOOLEAN DEFAULT FALSE,
+                    completed_by TEXT,
+                    completed_at TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (list_id) REFERENCES todo_lists (list_id) ON DELETE CASCADE
+                )
+            ''')
+            
+            # Create indexes for better performance
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_lists_guild ON todo_lists (guild_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_lists_name ON todo_lists (name, guild_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_items_list ON todo_items (list_id)')
+            
+            conn.commit()
+            conn.close()
+            print(f"Database initialized at {DATABASE_PATH}")
+            
+        except Exception as e:
+            print(f"Error initializing database: {e}")
+            # Fall back to JSON storage
+            global USE_DATABASE
+            USE_DATABASE = False
+            self.load_lists()
+    
+    def clear_database(self):
+        """Clear all data from the database (for testing)."""
+        if not USE_DATABASE:
+            return
+        
+        try:
+            conn = sqlite3.connect(DATABASE_PATH)
+            cursor = conn.cursor()
+            
+            cursor.execute('DELETE FROM todo_items')
+            cursor.execute('DELETE FROM todo_lists')
+            
+            conn.commit()
+            conn.close()
+            
+            # Clear in-memory data
+            self.todo_lists.clear()
+            print("Database cleared for testing")
+            
+        except Exception as e:
+            print(f"Error clearing database: {e}")
+    
+    def _migrate_from_json(self):
+        """Migrate data from JSON file to database if JSON file exists."""
+        if os.path.exists(JSON_FALLBACK):
+            try:
+                print("Migrating data from JSON to database...")
+                with open(JSON_FALLBACK, 'r') as f:
+                    data = json.load(f)
+                
+                conn = sqlite3.connect(DATABASE_PATH)
+                cursor = conn.cursor()
+                
+                for list_id, list_data in data.items():
+                    # Insert list
+                    cursor.execute('''
+                        INSERT OR IGNORE INTO todo_lists 
+                        (list_id, name, created_by, guild_id, created_at)
+                        VALUES (?, ?, ?, ?, ?)
+                    ''', (
+                        list_id,
+                        list_data['name'],
+                        list_data['created_by'],
+                        list_data['guild_id'],
+                        list_data['created_at']
+                    ))
+                    
+                    # Insert items
+                    for item in list_data.get('items', []):
+                        cursor.execute('''
+                            INSERT OR IGNORE INTO todo_items 
+                            (item_id, list_id, content, created_by, completed, completed_by, completed_at, created_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        ''', (
+                            item['item_id'],
+                            list_id,
+                            item['content'],
+                            item['created_by'],
+                            item['completed'],
+                            item.get('completed_by'),
+                            item.get('completed_at'),
+                            item['created_at']
+                        ))
+                
+                conn.commit()
+                conn.close()
+                
+                # Backup the old JSON file
+                backup_path = JSON_FALLBACK + '.backup'
+                os.rename(JSON_FALLBACK, backup_path)
+                print(f"Migration complete. Old data backed up to {backup_path}")
+                
+            except Exception as e:
+                print(f"Error during migration: {e}")
+                # Continue with database, but keep JSON as fallback
+                pass
+        
+        # Load data from database
+        self._load_from_database()
+    
+    def _load_from_database(self):
+        """Load all todo lists from the database."""
+        try:
+            conn = sqlite3.connect(DATABASE_PATH)
+            cursor = conn.cursor()
+            
+            # Load all lists
+            cursor.execute('SELECT list_id, name, created_by, guild_id, created_at FROM todo_lists')
+            lists_data = cursor.fetchall()
+            
+            for list_data in lists_data:
+                list_id, name, created_by, guild_id, created_at = list_data
+                
+                # Create TodoList object
+                todo_list = TodoList(name, created_by, guild_id, list_id)
+                todo_list.created_at = created_at
+                
+                # Load items for this list
+                cursor.execute('''
+                    SELECT item_id, content, created_by, completed, completed_by, completed_at, created_at 
+                    FROM todo_items WHERE list_id = ?
+                ''', (list_id,))
+                
+                items_data = cursor.fetchall()
+                for item_data in items_data:
+                    item_id, content, item_created_by, completed, completed_by, completed_at, item_created_at = item_data
+                    
+                    item = TodoItem(content, item_created_by, item_id)
+                    item.completed = bool(completed)
+                    item.completed_by = completed_by
+                    item.completed_at = completed_at
+                    item.created_at = item_created_at
+                    
+                    todo_list.items.append(item)
+                
+                self.todo_lists[list_id] = todo_list
+            
+            conn.close()
+            print(f"Loaded {len(self.todo_lists)} lists from database")
+            
+        except Exception as e:
+            print(f"Error loading from database: {e}")
+            # Fall back to JSON if database fails
+            self.load_lists()
+    
+    def _save_to_database(self):
+        """Save all todo lists to the database."""
+        try:
+            conn = sqlite3.connect(DATABASE_PATH)
+            cursor = conn.cursor()
+            
+            # Clear existing data
+            cursor.execute('DELETE FROM todo_items')
+            cursor.execute('DELETE FROM todo_lists')
+            
+            # Insert all lists and items
+            for list_id, todo_list in self.todo_lists.items():
+                cursor.execute('''
+                    INSERT INTO todo_lists (list_id, name, created_by, guild_id, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (
+                    list_id,
+                    todo_list.name,
+                    todo_list.created_by,
+                    todo_list.guild_id,
+                    todo_list.created_at
+                ))
+                
+                for item in todo_list.items:
+                    cursor.execute('''
+                        INSERT INTO todo_items 
+                        (item_id, list_id, content, created_by, completed, completed_by, completed_at, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        item.item_id,
+                        list_id,
+                        item.content,
+                        item.created_by,
+                        item.completed,
+                        item.completed_by,
+                        item.completed_at,
+                        item.created_at
+                    ))
+            
+            conn.commit()
+            conn.close()
+            
+        except Exception as e:
+            print(f"Error saving to database: {e}")
+            # Fall back to JSON if database fails
+            self.save_lists() 
+
+    def _save_to_json(self):
+        """Save todo lists to JSON file with error handling and backup."""
+        try:
+            # Create backup of existing file
+            if os.path.exists(self.storage_file):
+                backup_file = f"{self.storage_file}.backup"
+                import shutil
+                shutil.copy2(self.storage_file, backup_file)
+            
+            # Prepare data for serialization
+            data = {}
+            for list_id, todo_list in self.todo_lists.items():
+                try:
+                    data[list_id] = todo_list.to_dict()
+                except Exception as e:
+                    print(f"Error serializing list {list_id}: {e}")
+                    continue
+            
+            # Write to temporary file first, then atomically replace
+            temp_file = f"{self.storage_file}.tmp"
+            with open(temp_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            
+            # Atomic replace
+            os.replace(temp_file, self.storage_file)
+            print(f"Saved {len(self.todo_lists)} lists to JSON")
+            
+        except Exception as e:
+            print(f"Error saving todo lists: {e}") 

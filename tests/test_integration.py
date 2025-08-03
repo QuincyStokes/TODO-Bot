@@ -18,24 +18,17 @@ class TestBotIntegration(unittest.TestCase):
     """Integration tests for the bot"""
     
     def setUp(self):
-        # Create temporary directory for test data
+        """Set up test environment."""
         self.test_dir = tempfile.mkdtemp()
-        
-        # Mock environment variables
-        self.env_patcher = patch.dict('os.environ', {
-            'DATA_DIR': self.test_dir,
-            'DISCORD_TOKEN': 'test_token'
-        })
-        self.env_patcher.start()
-        
-        # Import bot modules after setting up environment
-        from todo_manager import TodoManager
-        self.todo_manager = TodoManager("test_todo_lists.json")
+        with patch('todo_manager.DATA_DIR', self.test_dir):
+            self.todo_manager = TodoManager("test_todo_lists.json")
+            # Clear any existing data for test isolation
+            if hasattr(self.todo_manager, 'clear_database'):
+                self.todo_manager.clear_database()
     
     def tearDown(self):
-        # Clean up
-        shutil.rmtree(self.test_dir)
-        self.env_patcher.stop()
+        """Clean up test environment."""
+        shutil.rmtree(self.test_dir, ignore_errors=True)
     
     def test_bot_initialization(self):
         """Test that the bot can be initialized"""

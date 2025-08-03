@@ -26,12 +26,17 @@ class TestServerDowntimeRecovery(unittest.TestCase):
     """Test that data persists through server restarts"""
     
     def setUp(self):
+        """Set up test environment."""
         self.test_dir = tempfile.mkdtemp()
         with patch('todo_manager.DATA_DIR', self.test_dir):
             self.todo_manager = TodoManager("test_todo_lists.json")
+            # Clear any existing data for test isolation
+            if hasattr(self.todo_manager, 'clear_database'):
+                self.todo_manager.clear_database()
     
     def tearDown(self):
-        shutil.rmtree(self.test_dir)
+        """Clean up test environment."""
+        shutil.rmtree(self.test_dir, ignore_errors=True)
     
     def test_data_persistence_through_restart(self):
         """Test that all data persists through server restart"""

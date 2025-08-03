@@ -129,6 +129,9 @@ class TestTodoManager(unittest.TestCase):
         # Patch the DATA_DIR to use our test directory
         with patch('todo_manager.DATA_DIR', self.test_dir):
             self.todo_manager = TodoManager("test_todo_lists.json")
+            # Clear any existing data for test isolation
+            if hasattr(self.todo_manager, 'clear_database'):
+                self.todo_manager.clear_database()
     
     def tearDown(self):
         # Clean up test directory
@@ -249,6 +252,10 @@ class TestBotCommands(unittest.TestCase):
         # Create a temporary directory for test data
         self.test_dir = tempfile.mkdtemp()
         self.manager = TodoManager(os.path.join(self.test_dir, "test_todo_lists.json"))
+        
+        # Clear any existing data for test isolation
+        if hasattr(self.manager, 'clear_database'):
+            self.manager.clear_database()
         
         # Create test data
         self.todo_list = self.manager.create_list("Test List", "user123", "guild456")
@@ -382,6 +389,10 @@ class TestNewFeatures(unittest.TestCase):
         # Create a temporary directory for test data
         self.test_dir = tempfile.mkdtemp()
         self.manager = TodoManager(os.path.join(self.test_dir, "test_todo_lists.json"))
+        
+        # Clear any existing data for test isolation
+        if hasattr(self.manager, 'clear_database'):
+            self.manager.clear_database()
         
         # Create test data with completed items
         self.todo_list = self.manager.create_list("Test List", "user123", "guild456")
@@ -524,6 +535,9 @@ class TestDataIsolation(unittest.TestCase):
         self.test_dir = tempfile.mkdtemp()
         with patch('todo_manager.DATA_DIR', self.test_dir):
             self.todo_manager = TodoManager("test_todo_lists.json")
+            # Clear any existing data for test isolation
+            if hasattr(self.todo_manager, 'clear_database'):
+                self.todo_manager.clear_database()
     
     def tearDown(self):
         shutil.rmtree(self.test_dir)
