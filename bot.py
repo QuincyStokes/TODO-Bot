@@ -238,6 +238,7 @@ class TodoItemView(discord.ui.View):
         self.item_index = item_index
         self.item = todo_list.items[item_index]
         self.created_at = time.time()
+        self.message = None  # Initialize message reference
         logger.debug(f"Created TodoItemView for {todo_list.name} with 300s timeout (created at {self.created_at})")
     
     async def on_timeout(self):
@@ -335,6 +336,7 @@ class InteractiveTodoListView(discord.ui.View):
         super().__init__(timeout=300)  # 5 minute timeout
         self.todo_list = todo_list
         self.created_at = time.time()
+        self.message = None  # Initialize message reference
         logger.debug(f"Created InteractiveTodoListView for {todo_list.name} with 300s timeout (created at {self.created_at})")
         self._create_item_buttons()
     
@@ -506,6 +508,7 @@ class TodoListView(discord.ui.View):
         super().__init__(timeout=300)  # 5 minute timeout
         self.todo_list = todo_list
         self.created_at = time.time()
+        self.message = None  # Initialize message reference
         logger.debug(f"Created TodoListView for {todo_list.name} with 300s timeout (created at {self.created_at})")
     
     async def on_timeout(self):
@@ -1047,6 +1050,7 @@ async def test_timeout(interaction: discord.Interaction):
             def __init__(self, todo_list):
                 super().__init__(timeout=30)  # 30 second timeout for testing
                 self.todo_list = todo_list
+                self.message = None  # Initialize message reference
                 logger.info(f"Created TestTimeoutView with 30s timeout for {todo_list.name}")
             
             async def on_timeout(self):
