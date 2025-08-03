@@ -537,8 +537,9 @@ class AddItemModal(discord.ui.Modal, title="Add Todo Item"):
             
             if new_item:
                 logger.info(f"Successfully added item to list. New item ID: {new_item.item_id}")
-                # Send silent confirmation
-                await safe_interaction_response(interaction, "", ephemeral=True)
+                
+                # Send success confirmation first
+                await safe_interaction_response(interaction, "✅ Item added successfully!", ephemeral=True)
                 
                 # Try to update the original message, but don't fail if it doesn't work
                 try:
@@ -553,11 +554,25 @@ class AddItemModal(discord.ui.Modal, title="Add Todo Item"):
                         logger.warning("Could not find updated list in manager")
                 except discord.NotFound:
                     logger.warning("Original message not found - it may have been deleted")
+                    # Send a followup message to let user know the item was added but view couldn't be updated
+                    try:
+                        await interaction.followup.send("✅ Item added! (Original message couldn't be updated - use `/show` to see the updated list)", ephemeral=True)
+                    except:
+                        pass
                 except discord.Forbidden:
                     logger.warning("Bot doesn't have permission to edit the original message")
+                    # Send a followup message to let user know the item was added but view couldn't be updated
+                    try:
+                        await interaction.followup.send("✅ Item added! (Original message couldn't be updated - use `/show` to see the updated list)", ephemeral=True)
+                    except:
+                        pass
                 except Exception as edit_error:
                     logger.warning(f"Could not update original message: {edit_error}")
-                    # The item was still added successfully, so we don't need to fail
+                    # Send a followup message to let user know the item was added but view couldn't be updated
+                    try:
+                        await interaction.followup.send("✅ Item added! (Original message couldn't be updated - use `/show` to see the updated list)", ephemeral=True)
+                    except:
+                        pass
             else:
                 logger.error("Failed to add item - add_item_to_list returned None")
                 await safe_interaction_response(interaction, "❌ Failed to add item", ephemeral=True)
