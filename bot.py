@@ -161,19 +161,23 @@ async def safe_interaction_response(interaction: discord.Interaction, content: s
             await interaction.response.send_message(content, **kwargs)
     except discord.NotFound:
         logger.warning("Interaction not found - it may have expired")
+        return None
     except discord.Forbidden:
         logger.warning("Bot doesn't have permission to respond to this interaction")
+        return None
     except discord.HTTPException as e:
         if e.status == 404 and e.code == 10062:
             logger.warning("Unknown interaction - it may have expired or been deleted")
         else:
             logger.error(f"HTTP error responding to interaction: {e}")
+        return None
     except Exception as e:
         logger.error(f"Failed to respond to interaction: {e}")
         try:
             await interaction.followup.send("❌ An error occurred while processing your request.", ephemeral=True)
         except:
             pass
+        return None
 
 
 async def safe_interaction_edit(interaction: discord.Interaction, **kwargs):
@@ -182,19 +186,23 @@ async def safe_interaction_edit(interaction: discord.Interaction, **kwargs):
         await interaction.response.edit_message(**kwargs)
     except discord.NotFound:
         logger.warning("Interaction not found - it may have expired")
+        return None
     except discord.Forbidden:
         logger.warning("Bot doesn't have permission to edit this interaction")
+        return None
     except discord.HTTPException as e:
         if e.status == 404 and e.code == 10062:
             logger.warning("Unknown interaction - it may have expired or been deleted")
         else:
             logger.error(f"HTTP error editing interaction: {e}")
+        return None
     except Exception as e:
         logger.error(f"Failed to edit interaction: {e}")
         try:
             await interaction.followup.send("❌ An error occurred while updating the message.", ephemeral=True)
         except:
             pass
+        return None
 
 
 async def safe_interaction_edit_with_view(interaction: discord.Interaction, embed=None, view=None):
@@ -205,59 +213,80 @@ async def safe_interaction_edit_with_view(interaction: discord.Interaction, embe
         
         # Set the message reference on the view if it exists
         if view and hasattr(view, 'message'):
-            view.message = interaction.message
-            logger.debug(f"Set message reference for view in edit: {type(view).__name__} - Message ID: {interaction.message.id}")
+            # Check if interaction.message exists before accessing its id
+            if interaction.message:
+                view.message = interaction.message
+                logger.debug(f"Set message reference for view in edit: {type(view).__name__} - Message ID: {interaction.message.id}")
+            else:
+                logger.warning(f"interaction.message is None in edit for view: {type(view).__name__}")
         else:
             logger.warning(f"View does not have message attribute or view is None in edit: {type(view).__name__ if view else 'None'}")
         
     except discord.NotFound:
         logger.warning("Interaction not found - it may have expired")
+        return None
     except discord.Forbidden:
         logger.warning("Bot doesn't have permission to edit this interaction")
+        return None
     except discord.HTTPException as e:
         if e.status == 404 and e.code == 10062:
             logger.warning("Unknown interaction - it may have expired or been deleted")
         else:
             logger.error(f"HTTP error editing interaction: {e}")
+        return None
     except Exception as e:
         logger.error(f"Failed to edit interaction: {e}")
         try:
             await interaction.followup.send("❌ An error occurred while updating the message.", ephemeral=True)
         except:
             pass
+        return None
 
 
 async def safe_interaction_response_with_view(interaction: discord.Interaction, content: str, embed=None, view=None):
     """Safely respond to an interaction with a view and properly set message reference."""
     try:
+        logger.debug(f"safe_interaction_response_with_view called with view: {type(view).__name__ if view else 'None'}")
+        logger.debug(f"Interaction response is_done: {interaction.response.is_done()}")
+        
         if interaction.response.is_done():
             message = await interaction.followup.send(content, embed=embed, view=view)
         else:
             message = await interaction.response.send_message(content, embed=embed, view=view)
         
+        logger.debug(f"Message returned from response: {message}")
+        
         # Set the message reference on the view if it exists
         if view and hasattr(view, 'message'):
-            view.message = message
-            logger.debug(f"Set message reference for view: {type(view).__name__} - Message ID: {message.id}")
+            # Check if message exists before accessing its id
+            if message:
+                view.message = message
+                logger.debug(f"Set message reference for view: {type(view).__name__} - Message ID: {message.id}")
+            else:
+                logger.warning(f"message is None in response for view: {type(view).__name__}")
         else:
             logger.warning(f"View does not have message attribute or view is None: {type(view).__name__ if view else 'None'}")
         
         return message
     except discord.NotFound:
         logger.warning("Interaction not found - it may have expired")
+        return None
     except discord.Forbidden:
         logger.warning("Bot doesn't have permission to respond to this interaction")
+        return None
     except discord.HTTPException as e:
         if e.status == 404 and e.code == 10062:
             logger.warning("Unknown interaction - it may have expired or been deleted")
         else:
             logger.error(f"HTTP error responding to interaction: {e}")
+        return None
     except Exception as e:
         logger.error(f"Failed to respond to interaction: {e}")
         try:
             await interaction.followup.send("❌ An error occurred while processing your request.", ephemeral=True)
         except:
             pass
+        return None
 
 
 class TodoItemView(discord.ui.View):
@@ -397,10 +426,11 @@ class InteractiveTodoListView(discord.ui.View):
                       f"**Pending:** {sum(1 for item in self.todo_list.items if not item.completed)}",
                 inline=False
             )
-            embed.set_footer(text="🕐 Interactive views automatically expire after 5 minutes | Use /show to get a fresh view")
+            embed.set_footer(text="🕐 Interactive views automatically expire after 10 seconds for testing | Use /show to get a fresh view")
             
             # Try to edit the message if we have a reference
             logger.debug(f"Timeout check - hasattr(self, 'message'): {hasattr(self, 'message')}, self.message: {self.message}")
+            logger.debug(f"Timeout check - self.message type: {type(self.message) if hasattr(self, 'message') else 'No message attr'}")
             if hasattr(self, 'message') and self.message:
                 try:
                     await self.message.edit(embed=embed, view=None)
@@ -1011,7 +1041,9 @@ async def show_list(interaction: discord.Interaction, list_name: str):
         logger.info(f"Found list '{todo_list.name}' with {len(todo_list.items)} items")
         embed = create_todo_list_embed(todo_list)
         view = InteractiveTodoListView(todo_list)
-        await safe_interaction_response_with_view(interaction, "", embed=embed, view=view)
+        logger.debug(f"Created view for {todo_list.name}, view.message before sending: {view.message}")
+        message = await safe_interaction_response_with_view(interaction, "", embed=embed, view=view)
+        logger.debug(f"After sending, view.message: {view.message}, message returned: {message}")
         
     except Exception as e:
         logger.error(f"Error showing todo list: {e}")
@@ -1094,7 +1126,7 @@ async def test_timeout(interaction: discord.Interaction):
                               f"**✅ View disabled as expected**",
                         inline=False
                     )
-                    embed.set_footer(text="🧪 This was a test - normal views expire after 5 minutes")
+                    embed.set_footer(text="🧪 This was a test - normal views expire after 10 seconds for testing")
                     
                     # Try to edit the message if we have a reference
                     if hasattr(self, 'message') and self.message:
@@ -1129,10 +1161,12 @@ async def test_timeout(interaction: discord.Interaction):
             value="\n".join([f"• {item.content}" for item in todo_list.items]),
             inline=False
         )
-        embed.set_footer(text="🧪 This is a test - normal views expire after 5 minutes")
+        embed.set_footer(text="🧪 This is a test - normal views expire after 10 seconds for testing")
         
         view = TestTimeoutView(todo_list)
-        await safe_interaction_response_with_view(interaction, "", embed=embed, view=view)
+        logger.debug(f"Created test view for {todo_list.name}, view.message before sending: {view.message}")
+        message = await safe_interaction_response_with_view(interaction, "", embed=embed, view=view)
+        logger.debug(f"After sending test view, view.message: {view.message}, message returned: {message}")
         
     except Exception as e:
         logger.error(f"Error in test_timeout command: {e}")
@@ -1412,6 +1446,7 @@ async def refresh_list(interaction: discord.Interaction, list_name: str):
         
         embed = create_todo_list_embed(todo_list)
         view = InteractiveTodoListView(todo_list)
+        logger.debug(f"Created refresh view for {list_name}, view.message before sending: {view.message}")
         
         await safe_interaction_response(interaction, 
             f"🔄 Created fresh interactive view for **{list_name}**!", 
@@ -1423,6 +1458,7 @@ async def refresh_list(interaction: discord.Interaction, list_name: str):
         if hasattr(view, 'message'):
             view.message = message
             logger.debug(f"Set message reference for refresh view: {type(view).__name__} - Message ID: {message.id}")
+        logger.debug(f"After sending refresh view, view.message: {view.message}, message returned: {message}")
         
     except Exception as e:
         logger.error(f"Error refreshing todo list: {e}")
