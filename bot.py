@@ -514,12 +514,8 @@ class AddItemModal(discord.ui.Modal, title="Add Todo Item"):
             
             if new_item:
                 logger.info(f"Successfully added item to list. New item ID: {new_item.item_id}")
-                # Send confirmation message
-                await safe_interaction_response(
-                    interaction,
-                    f"✅ Added item to **{self.todo_list.name}**: {content}", 
-                    ephemeral=True
-                )
+                # Send silent confirmation
+                await safe_interaction_response(interaction, "", ephemeral=True)
                 
                 # Try to update the original message, but don't fail if it doesn't work
                 try:
@@ -634,7 +630,7 @@ async def add_item(interaction: discord.Interaction, list_name: str, item: str):
         
         # Add item
         new_item = bot.todo_manager.add_item_to_list(todo_list.list_id, item, str(interaction.user.id))
-        await safe_interaction_response(interaction, f"✅ Added item to **{list_name}**: {item}", ephemeral=True)
+        await safe_interaction_response(interaction, "", ephemeral=True)
         
     except Exception as e:
         logger.error(f"Error adding item: {e}")
@@ -844,7 +840,7 @@ async def show_list(interaction: discord.Interaction, list_name: str):
         logger.info(f"Found list '{todo_list.name}' with {len(todo_list.items)} items")
         embed = create_todo_list_embed(todo_list)
         view = InteractiveTodoListView(todo_list)
-        await safe_interaction_response(interaction, "", embed=embed, view=view, ephemeral=True)
+        await safe_interaction_response(interaction, "", embed=embed, view=view)
         
     except Exception as e:
         logger.error(f"Error showing todo list: {e}")
