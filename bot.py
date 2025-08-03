@@ -522,7 +522,6 @@ def create_todo_list_embed(todo_list) -> discord.Embed:
             items_text += f"{i}. {status} {item.content}\n"
         embed.add_field(name="Items", value=items_text, inline=False)
     
-    embed.set_footer(text=f"List ID: {todo_list.list_id}")
     return embed
 
 
@@ -533,12 +532,36 @@ async def create_list(interaction: discord.Interaction, name: str):
     """Create a new todo list."""
     try:
         guild_id = str(interaction.guild_id)
-        todo_list = bot.todo_manager.create_list(name, str(interaction.user.id), guild_id)
-        await safe_interaction_response(
-            interaction, 
-            f"✅ Created todo list: **{name}**", 
-            ephemeral=True
-        )
+        
+        # Check if list already exists
+        if bot.todo_manager.list_exists(name, guild_id):
+            # Get the new name that will be used
+            existing_lists = bot.todo_manager.get_lists_by_name(name, guild_id)
+            new_name = f"{name} (1)"
+            i = 2
+            while bot.todo_manager.list_exists(new_name, guild_id):
+                new_name = f"{name} ({i})"
+                i += 1
+            
+            # Create the list with the new name
+            todo_list = bot.todo_manager.create_list(name, str(interaction.user.id), guild_id)
+            
+            await safe_interaction_response(
+                interaction, 
+                f"✅ Created todo list: **{todo_list.name}**\n"
+                f"ℹ️ A list named '{name}' already exists, so this one was renamed automatically.", 
+                ephemeral=True
+            )
+        else:
+            # Create the list with the original name
+            todo_list = bot.todo_manager.create_list(name, str(interaction.user.id), guild_id)
+            
+            await safe_interaction_response(
+                interaction, 
+                f"✅ Created todo list: **{name}**", 
+                ephemeral=True
+            )
+            
     except Exception as e:
         logger.error(f"Error creating todo list: {e}")
         await safe_interaction_response(interaction, f"❌ Error creating todo list: {str(e)}", ephemeral=True)
@@ -678,22 +701,49 @@ async def list_lists(interaction: discord.Interaction):
             )
             return
         
+        # Group lists by base name to show duplicates
+        list_groups = {}
+        for todo_list in todo_lists:
+            base_name = todo_list.name.split(" (")[0]  # Remove numbering like " (1)", " (2)"
+            if base_name not in list_groups:
+                list_groups[base_name] = []
+            list_groups[base_name].append(todo_list)
+        
         embed = discord.Embed(
             title="📋 Todo Lists",
             description=f"Found {len(todo_lists)} todo list(s) in this server:",
             color=discord.Color.green()
         )
         
-        for todo_list in todo_lists:
-            item_count = len(todo_list.items)
-            completed_count = sum(1 for item in todo_list.items if item.completed)
-            embed.add_field(
-                name=todo_list.name,
-                value=f"Items: {item_count} | Completed: {completed_count} | Created by <@{todo_list.created_by}>",
-                inline=False
-            )
+        for base_name, lists in list_groups.items():
+            if len(lists) == 1:
+                # Single list - show normally
+                todo_list = lists[0]
+                item_count = len(todo_list.items)
+                completed_count = sum(1 for item in todo_list.items if item.completed)
+                embed.add_field(
+                    name=todo_list.name,
+                    value=f"Items: {item_count} | Completed: {completed_count} | Created by <@{todo_list.created_by}>",
+                    inline=False
+                )
+            else:
+                # Multiple lists with similar names - show as group
+                embed.add_field(
+                    name=f"📁 {base_name} ({len(lists)} lists)",
+                    value="Multiple lists with similar names:",
+                    inline=False
+                )
+                
+                for i, todo_list in enumerate(lists, 1):
+                    item_count = len(todo_list.items)
+                    completed_count = sum(1 for item in todo_list.items if item.completed)
+                    embed.add_field(
+                        name=f"  {todo_list.name}",
+                        value=f"Items: {item_count} | Completed: {completed_count} | Created by <@{todo_list.created_by}>",
+                        inline=False
+                    )
         
-        await safe_interaction_response(interaction, embed=embed, ephemeral=True)
+        await safe_interaction_response(interaction, "", embed=embed, ephemeral=True)
         
     except Exception as e:
         logger.error(f"Error listing todo lists: {e}")
@@ -718,7 +768,7 @@ async def show_list(interaction: discord.Interaction, list_name: str):
         
         embed = create_todo_list_embed(todo_list)
         view = InteractiveTodoListView(todo_list)
-        await safe_interaction_response(interaction, embed=embed, view=view, ephemeral=True)
+        await safe_interaction_response(interaction, "", embed=embed, view=view, ephemeral=True)
         
     except Exception as e:
         logger.error(f"Error showing todo list: {e}")
@@ -773,7 +823,7 @@ async def debug_commands(interaction: discord.Interaction):
         for cmd in commands:
             embed.add_field(name=f"/{cmd}", value="✅ Registered", inline=False)
         
-        await safe_interaction_response(interaction, embed=embed, ephemeral=True)
+        await safe_interaction_response(interaction, "", embed=embed, ephemeral=True)
         
     except Exception as e:
         logger.error(f"Error in debug command: {e}")
@@ -829,6 +879,7 @@ async def help_command(interaction: discord.Interaction):
                   "• `/list` - Show all todo lists in this server\n"
                   "• `/show [name]` - Display a todo list with interactive buttons\n"
                   "• `/pin [name]` - Create a persistent display in the channel\n"
+                  "• `/info [name]` - Get detailed information about a list\n"
                   "• `/delete [name]` - Delete a todo list",
             inline=False
         )
@@ -852,6 +903,16 @@ async def help_command(interaction: discord.Interaction):
             inline=False
         )
         
+        # Tips and features
+        embed.add_field(
+            name="💡 Tips & Features",
+            value="• **Duplicate names?** Lists are automatically renamed (e.g., 'Shopping (1)', 'Shopping (2)')\n"
+                  "• **Multiple lists?** Use `/list` to see all lists grouped by name\n"
+                  "• **Need details?** Use `/info [name]` for comprehensive list information\n"
+                  "• **Quick actions?** Use interactive buttons for faster workflow",
+            inline=False
+        )
+        
         # Troubleshooting
         embed.add_field(
             name="🔧 Troubleshooting",
@@ -864,11 +925,90 @@ async def help_command(interaction: discord.Interaction):
         
         embed.set_footer(text="Tip: Use commands for quick actions, interactive views for detailed work")
         
-        await safe_interaction_response(interaction, embed=embed, ephemeral=True)
+        await safe_interaction_response(interaction, "", embed=embed, ephemeral=True)
         
     except Exception as e:
         logger.error(f"Error in help command: {e}")
         await safe_interaction_response(interaction, f"❌ Error showing help: {str(e)}", ephemeral=True)
+
+
+@bot.tree.command(name="info", description="Get detailed information about a todo list")
+@app_commands.describe(list_name="Name of the todo list to get info about")
+async def list_info(interaction: discord.Interaction, list_name: str):
+    """Get detailed information about a specific todo list."""
+    try:
+        guild_id = str(interaction.guild_id)
+        todo_list = bot.todo_manager.get_list_by_name(list_name, guild_id)
+        
+        if not todo_list:
+            await safe_interaction_response(
+                interaction,
+                f"❌ Todo list '{list_name}' not found in this server!", 
+                ephemeral=True
+            )
+            return
+        
+        # Create detailed embed
+        embed = discord.Embed(
+            title=f"📋 {todo_list.name} - Detailed Information",
+            description=f"Created by <@{todo_list.created_by}>",
+            color=discord.Color.blue()
+        )
+        
+        # Basic info
+        embed.add_field(
+            name="📊 List Statistics",
+            value=f"• **Total Items:** {len(todo_list.items)}\n"
+                  f"• **Completed:** {sum(1 for item in todo_list.items if item.completed)}\n"
+                  f"• **Pending:** {sum(1 for item in todo_list.items if not item.completed)}\n"
+                  f"• **Completion Rate:** {round((sum(1 for item in todo_list.items if item.completed) / len(todo_list.items) * 100) if todo_list.items else 0, 1)}%",
+            inline=False
+        )
+        
+        # Technical details
+        embed.add_field(
+            name="🔧 Technical Details",
+            value=f"• **List ID:** `{todo_list.list_id}`\n"
+                  f"• **Guild ID:** `{todo_list.guild_id}`\n"
+                  f"• **Created By:** <@{todo_list.created_by}>\n"
+                  f"• **Created At:** <t:{int(todo_list.created_at.timestamp())}:F>",
+            inline=False
+        )
+        
+        # Items breakdown
+        if todo_list.items:
+            completed_items = [item for item in todo_list.items if item.completed]
+            pending_items = [item for item in todo_list.items if not item.completed]
+            
+            if completed_items:
+                completed_text = "\n".join([f"✅ {item.content}" for item in completed_items])
+                embed.add_field(
+                    name=f"✅ Completed Items ({len(completed_items)})",
+                    value=completed_text[:1024] + ("..." if len(completed_text) > 1024 else ""),
+                    inline=False
+                )
+            
+            if pending_items:
+                pending_text = "\n".join([f"⭕ {item.content}" for item in pending_items])
+                embed.add_field(
+                    name=f"⭕ Pending Items ({len(pending_items)})",
+                    value=pending_text[:1024] + ("..." if len(pending_text) > 1024 else ""),
+                    inline=False
+                )
+        else:
+            embed.add_field(
+                name="📝 Items",
+                value="No items in this list yet.",
+                inline=False
+            )
+        
+        embed.set_footer(text=f"List ID: {todo_list.list_id} | Use /show {list_name} for interactive view")
+        
+        await safe_interaction_response(interaction, "", embed=embed, ephemeral=True)
+        
+    except Exception as e:
+        logger.error(f"Error getting list info: {e}")
+        await safe_interaction_response(interaction, f"❌ Error getting list info: {str(e)}", ephemeral=True)
 
 
 @bot.tree.command(name="refresh", description="Create a fresh interactive view for a todo list")

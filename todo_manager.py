@@ -318,6 +318,17 @@ class TodoManager:
         Returns:
             The created TodoList
         """
+        if self.list_exists(name, guild_id):
+            # If list with the same name already exists, append a number to the name
+            existing_lists = self.get_lists_by_name(name, guild_id)
+            new_name = f"{name} (1)"
+            i = 2
+            while self.list_exists(new_name, guild_id):
+                new_name = f"{name} ({i})"
+                i += 1
+            name = new_name
+            print(f"List with name '{name}' already exists. Renaming to '{new_name}'.")
+
         todo_list = TodoList(name, created_by, guild_id)
         self.todo_lists[todo_list.list_id] = todo_list
         self.save_lists()
@@ -348,6 +359,33 @@ class TodoManager:
             if todo_list.name == name and todo_list.guild_id == guild_id:
                 return todo_list
         return None
+    
+    def get_lists_by_name(self, name: str, guild_id: str) -> List[TodoList]:
+        """Get all todo lists with the same name within a specific guild.
+        
+        Args:
+            name: Name of the list to find
+            guild_id: Discord server ID for guild isolation
+            
+        Returns:
+            List of TodoList objects with the given name in the guild
+        """
+        return [
+            todo_list for todo_list in self.todo_lists.values()
+            if todo_list.name == name and todo_list.guild_id == guild_id
+        ]
+    
+    def list_exists(self, name: str, guild_id: str) -> bool:
+        """Check if a list with the given name exists in the guild.
+        
+        Args:
+            name: Name of the list to check
+            guild_id: Discord server ID for guild isolation
+            
+        Returns:
+            True if a list with that name exists, False otherwise
+        """
+        return self.get_list_by_name(name, guild_id) is not None
     
     def delete_list(self, list_id: str) -> bool:
         """Delete a todo list.

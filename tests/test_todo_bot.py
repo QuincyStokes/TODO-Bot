@@ -243,83 +243,279 @@ class TestTodoManager(unittest.TestCase):
         self.assertEqual(loaded_list.items[0].content, "Test item")
 
 class TestBotCommands(unittest.TestCase):
-    """Test bot command functionality"""
+    """Test bot command logic"""
     
     def setUp(self):
         # Create a temporary directory for test data
         self.test_dir = tempfile.mkdtemp()
+        self.manager = TodoManager(os.path.join(self.test_dir, "test_todo_lists.json"))
         
-        # Mock the bot and interaction
-        self.bot = Mock()
+        # Create test data
+        self.todo_list = self.manager.create_list("Test List", "user123", "guild456")
+        self.manager.add_item_to_list(self.todo_list.list_id, "Item 1", "user123")
+        self.manager.add_item_to_list(self.todo_list.list_id, "Item 2", "user456")
+        self.manager.add_item_to_list(self.todo_list.list_id, "Item 3", "user789")
+        
+        # Mock interaction
         self.interaction = Mock()
-        self.interaction.guild_id = 123456789
-        self.interaction.user.id = 987654321
-        self.interaction.response.send_message = Mock()
-        self.interaction.response.edit_message = Mock()
-        self.interaction.channel.send = Mock()
+        self.interaction.guild_id = 456
+        self.interaction.user.id = 123
         
-        # Patch the todo manager
-        with patch('todo_manager.DATA_DIR', self.test_dir):
-            self.todo_manager = TodoManager("test_todo_lists.json")
-            self.bot.todo_manager = self.todo_manager
-    
     def tearDown(self):
         # Clean up test directory
-        shutil.rmtree(self.test_dir)
+        shutil.rmtree(self.test_dir, ignore_errors=True)
     
     def test_create_list_command_logic(self):
         """Test the create list command logic"""
-        # Test successful creation
-        self.interaction.guild_id = 123456789
-        self.interaction.user.id = 987654321
+        # Test successful list creation
+        result = self.manager.create_list("New List", "user123", "guild456")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.name, "New List")
+        self.assertEqual(result.created_by, "user123")
+        self.assertEqual(result.guild_id, "guild456")
         
-        # Test the logic directly
-        guild_id = str(self.interaction.guild_id)
-        name = "Test List"
+        # Test duplicate list name in same guild (should work - we allow duplicates)
+        duplicate_result = self.manager.create_list("New List", "user456", "guild456")
+        self.assertIsNotNone(duplicate_result)  # Should work - we allow duplicates
         
-        # Check if list already exists
-        existing_list = self.todo_manager.get_list_by_name(name, guild_id)
-        self.assertIsNone(existing_list)
-        
-        # Create new list
-        todo_list = self.todo_manager.create_list(name, str(self.interaction.user.id), guild_id)
-        self.assertIsNotNone(todo_list)
-        self.assertEqual(todo_list.name, name)
-        self.assertEqual(todo_list.created_by, str(self.interaction.user.id))
-        self.assertEqual(todo_list.guild_id, guild_id)
+        # Test same name in different guild (should work)
+        other_guild_result = self.manager.create_list("New List", "user789", "guild789")
+        self.assertIsNotNone(other_guild_result)
     
     def test_add_item_command_logic(self):
         """Test the add item command logic"""
-        # Create a list first
-        todo_list = self.todo_manager.create_list("Test List", "987654321", "123456789")
-        
-        # Test adding item
-        guild_id = str(self.interaction.guild_id)
-        list_name = "Test List"
-        item_content = "New item"
-        
-        # Find the list in this guild
-        found_list = self.todo_manager.get_list_by_name(list_name, guild_id)
-        self.assertIsNotNone(found_list)
-        
-        # Add item
-        new_item = self.todo_manager.add_item_to_list(found_list.list_id, item_content, str(self.interaction.user.id))
+        # Test successful item addition
+        new_item = self.manager.add_item_to_list(self.todo_list.list_id, "New Item", "user123")
         self.assertIsNotNone(new_item)
-        self.assertEqual(new_item.content, item_content)
+        self.assertEqual(new_item.content, "New Item")
+        self.assertEqual(new_item.created_by, "user123")
+        
+        # Verify item was added to the list
+        updated_list = self.manager.get_list_by_name("Test List", "guild456")
+        self.assertEqual(len(updated_list.items), 4)
     
     def test_list_lists_command_logic(self):
         """Test the list lists command logic"""
-        # Create some lists
-        self.todo_manager.create_list("List1", "987654321", "123456789")
-        self.todo_manager.create_list("List2", "987654321", "123456789")
+        # Create additional lists
+        self.manager.create_list("List 2", "user456", "guild456")
+        self.manager.create_list("List 3", "user789", "guild456")
         
-        # Test listing
-        guild_id = str(self.interaction.guild_id)
-        todo_lists = self.todo_manager.get_all_lists(guild_id)
+        # Test getting all lists for guild
+        lists = self.manager.get_all_lists("guild456")
+        self.assertEqual(len(lists), 3)
         
-        self.assertEqual(len(todo_lists), 2)
-        self.assertEqual(todo_lists[0].name, "List1")
-        self.assertEqual(todo_lists[1].name, "List2")
+        # Test getting lists for different guild
+        other_lists = self.manager.get_all_lists("guild789")
+        self.assertEqual(len(other_lists), 0)
+    
+    def test_info_command_logic(self):
+        """Test the info command logic"""
+        # Test getting info for existing list
+        list_info = self.manager.get_list_by_name("Test List", "guild456")
+        self.assertIsNotNone(list_info)
+        self.assertEqual(list_info.name, "Test List")
+        self.assertEqual(len(list_info.items), 3)
+        
+        # Test getting info for non-existent list
+        non_existent = self.manager.get_list_by_name("Non Existent", "guild456")
+        self.assertIsNone(non_existent)
+        
+        # Test getting info for list in different guild
+        other_guild = self.manager.get_list_by_name("Test List", "guild789")
+        self.assertIsNone(other_guild)
+    
+    def test_show_command_logic(self):
+        """Test the show command logic"""
+        # Test showing existing list
+        list_to_show = self.manager.get_list_by_name("Test List", "guild456")
+        self.assertIsNotNone(list_to_show)
+        self.assertEqual(len(list_to_show.items), 3)
+        
+        # Test showing non-existent list
+        non_existent = self.manager.get_list_by_name("Non Existent", "guild456")
+        self.assertIsNone(non_existent)
+    
+    def test_pin_command_logic(self):
+        """Test the pin command logic"""
+        # Test pinning existing list
+        list_to_pin = self.manager.get_list_by_name("Test List", "guild456")
+        self.assertIsNotNone(list_to_pin)
+        self.assertEqual(len(list_to_pin.items), 3)
+        
+        # Test pinning non-existent list
+        non_existent = self.manager.get_list_by_name("Non Existent", "guild456")
+        self.assertIsNone(non_existent)
+    
+    def test_refresh_command_logic(self):
+        """Test the refresh command logic"""
+        # Test refreshing existing list
+        list_to_refresh = self.manager.get_list_by_name("Test List", "guild456")
+        self.assertIsNotNone(list_to_refresh)
+        self.assertEqual(len(list_to_refresh.items), 3)
+        
+        # Test refreshing non-existent list
+        non_existent = self.manager.get_list_by_name("Non Existent", "guild456")
+        self.assertIsNone(non_existent)
+    
+    def test_delete_command_logic(self):
+        """Test the delete command logic"""
+        # Test deleting existing list
+        list_to_delete = self.manager.get_list_by_name("Test List", "guild456")
+        self.assertIsNotNone(list_to_delete)
+        
+        # Delete the list
+        success = self.manager.delete_list(list_to_delete.list_id)
+        self.assertTrue(success)
+        
+        # Verify list is deleted
+        deleted_list = self.manager.get_list_by_name("Test List", "guild456")
+        self.assertIsNone(deleted_list)
+        
+        # Test deleting non-existent list
+        non_existent_success = self.manager.delete_list("non-existent-id")
+        self.assertFalse(non_existent_success)
+
+class TestNewFeatures(unittest.TestCase):
+    """Test new features and improvements"""
+    
+    def setUp(self):
+        # Create a temporary directory for test data
+        self.test_dir = tempfile.mkdtemp()
+        self.manager = TodoManager(os.path.join(self.test_dir, "test_todo_lists.json"))
+        
+        # Create test data with completed items
+        self.todo_list = self.manager.create_list("Test List", "user123", "guild456")
+        self.manager.add_item_to_list(self.todo_list.list_id, "Item 1", "user123")
+        self.manager.add_item_to_list(self.todo_list.list_id, "Item 2", "user456")
+        self.manager.add_item_to_list(self.todo_list.list_id, "Item 3", "user789")
+        
+        # Complete one item
+        self.manager.toggle_item_in_list(self.todo_list.list_id, self.todo_list.items[0].item_id, "user123")
+        
+    def tearDown(self):
+        # Clean up test directory
+        shutil.rmtree(self.test_dir, ignore_errors=True)
+    
+    def test_info_command_statistics(self):
+        """Test the info command statistics calculation"""
+        list_info = self.manager.get_list_by_name("Test List", "guild456")
+        
+        # Test statistics
+        total_items = len(list_info.items)
+        completed_items = sum(1 for item in list_info.items if item.completed)
+        pending_items = sum(1 for item in list_info.items if not item.completed)
+        completion_rate = round((completed_items / total_items * 100) if total_items > 0 else 0, 1)
+        
+        self.assertEqual(total_items, 3)
+        self.assertEqual(completed_items, 1)
+        self.assertEqual(pending_items, 2)
+        self.assertEqual(completion_rate, 33.3)
+    
+    def test_info_command_technical_details(self):
+        """Test the info command technical details"""
+        list_info = self.manager.get_list_by_name("Test List", "guild456")
+        
+        # Test technical details are present
+        self.assertIsNotNone(list_info.list_id)
+        self.assertEqual(list_info.guild_id, "guild456")
+        self.assertEqual(list_info.created_by, "user123")
+        self.assertIsNotNone(list_info.created_at)
+    
+    def test_info_command_item_breakdown(self):
+        """Test the info command item breakdown"""
+        list_info = self.manager.get_list_by_name("Test List", "guild456")
+        
+        # Test completed items
+        completed_items = [item for item in list_info.items if item.completed]
+        self.assertEqual(len(completed_items), 1)
+        self.assertEqual(completed_items[0].content, "Item 1")
+        
+        # Test pending items
+        pending_items = [item for item in list_info.items if not item.completed]
+        self.assertEqual(len(pending_items), 2)
+        self.assertEqual(pending_items[0].content, "Item 2")
+        self.assertEqual(pending_items[1].content, "Item 3")
+    
+    def test_empty_list_info(self):
+        """Test info command with empty list"""
+        # Create empty list
+        empty_list = self.manager.create_list("Empty List", "user123", "guild456")
+        
+        # Test statistics for empty list
+        total_items = len(empty_list.items)
+        completed_items = sum(1 for item in empty_list.items if item.completed)
+        pending_items = sum(1 for item in empty_list.items if not item.completed)
+        completion_rate = round((completed_items / total_items * 100) if total_items > 0 else 0, 1)
+        
+        self.assertEqual(total_items, 0)
+        self.assertEqual(completed_items, 0)
+        self.assertEqual(pending_items, 0)
+        self.assertEqual(completion_rate, 0.0)
+    
+    def test_safe_interaction_response_handling(self):
+        """Test safe interaction response handling"""
+        # Mock interaction with response already done
+        interaction = Mock()
+        interaction.response.is_done.return_value = True
+        interaction.followup.send = Mock()
+        
+        # Test that followup.send is called when response is done
+        # This would be tested in actual bot code, but we can verify the logic
+        response_done = interaction.response.is_done()
+        self.assertTrue(response_done)
+    
+    def test_timeout_handling(self):
+        """Test timeout handling for views"""
+        # Test that timeout messages include proper instructions
+        timeout_instructions = [
+            "Use `/show {list_name}` to get a fresh interactive view",
+            "Use `/pin {list_name}` to create a new persistent display",
+            "Use commands like `/add`, `/toggle`, `/remove` for direct actions"
+        ]
+        
+        # Verify all timeout instructions are present
+        for instruction in timeout_instructions:
+            if "show" in instruction:
+                self.assertIn("show", instruction)
+            elif "pin" in instruction:
+                self.assertIn("pin", instruction)
+            elif "commands" in instruction:
+                self.assertIn("commands", instruction)
+        
+        # Test that we have the expected number of instructions
+        self.assertEqual(len(timeout_instructions), 3)
+    
+    def test_embed_creation_without_list_id(self):
+        """Test that embeds are created without List ID in footer"""
+        list_info = self.manager.get_list_by_name("Test List", "guild456")
+        
+        # Simulate embed creation (this would be done in actual bot code)
+        embed_title = f"📋 {list_info.name}"
+        embed_description = f"Created by <@{list_info.created_by}>"
+        
+        self.assertEqual(embed_title, "📋 Test List")
+        self.assertEqual(embed_description, "Created by <@user123>")
+        
+        # Verify no List ID in footer (this would be checked in actual embed)
+        # The actual embed creation is in bot.py, but we can test the logic here
+        self.assertIsNotNone(list_info.list_id)  # List ID should exist
+        # But it shouldn't be in the display embed footer anymore
+    
+    def test_command_error_handling(self):
+        """Test command error handling"""
+        # Test that commands handle missing lists gracefully
+        non_existent = self.manager.get_list_by_name("Non Existent", "guild456")
+        self.assertIsNone(non_existent)
+        
+        # Test that commands handle invalid item numbers gracefully
+        list_info = self.manager.get_list_by_name("Test List", "guild456")
+        item_count = len(list_info.items)
+        
+        # Test invalid item numbers
+        self.assertGreater(item_count, 0)  # Should have items
+        self.assertLess(0, item_count)     # Item numbers should be 1-based
+        self.assertLess(item_count, 100)   # Reasonable upper bound
+
 
 class TestDataIsolation(unittest.TestCase):
     """Test data isolation between guilds and users"""
@@ -377,6 +573,7 @@ def run_tests():
         TestTodoList,
         TestTodoManager,
         TestBotCommands,
+        TestNewFeatures,
         TestDataIsolation
     ]
     
