@@ -6,18 +6,34 @@ A Discord bot for managing todo lists with interactive features.
 Supports creating, managing, and sharing todo lists within Discord servers.
 """
 
+# Import audioop patch first to prevent import errors
+import patch_audioop
+
 import asyncio
+import logging
 import os
 import threading
+import time
 from typing import Optional
 
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 from flask import Flask
 
 import config
 from todo_manager import TodoManager
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('bot.log')
+    ]
+)
+logger = logging.getLogger(__name__)
 
 # Create Flask app for health check
 app = Flask(__name__)
@@ -32,13 +48,17 @@ def health_check():
 @app.route('/health')
 def health():
     """Detailed health check endpoint."""
-    return {"status": "healthy", "bot": "running"}
+    return {"status": "healthy", "bot": "running", "timestamp": time.time()}
 
 
 def run_flask():
     """Run Flask server in a separate thread for Render port binding."""
-    port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port)
+    try:
+        port = int(os.environ.get('PORT', 10000))
+        logger.info(f"Starting Flask server on port {port}")
+        app.run(host='0.0.0.0', port=port)
+    except Exception as e:
+        logger.error(f"Flask server error: {e}")
 
 
 class TodoBot(commands.Bot):
@@ -52,11 +72,60 @@ class TodoBot(commands.Bot):
         
         super().__init__(command_prefix="!", intents=intents)
         self.todo_manager = TodoManager()
+        self.last_heartbeat = time.time()
+        self.connection_attempts = 0
+        self.max_reconnect_attempts = 5
         
     async def setup_hook(self):
         """Setup hook called when bot is ready."""
-        await self.tree.sync()
-        print("Bot is ready!")
+        try:
+            await self.tree.sync()
+            logger.info("Bot is ready!")
+            self.heartbeat.start()
+        except Exception as e:
+            logger.error(f"Error in setup_hook: {e}")
+    
+    @tasks.loop(minutes=1)
+    async def heartbeat(self):
+        """Send periodic heartbeat to keep connection alive."""
+        try:
+            if self.is_ready():
+                self.last_heartbeat = time.time()
+                logger.debug("Heartbeat sent")
+            else:
+                logger.warning("Bot not ready during heartbeat")
+        except Exception as e:
+            logger.error(f"Heartbeat error: {e}")
+    
+    @heartbeat.before_loop
+    async def before_heartbeat(self):
+        """Wait until bot is ready before starting heartbeat."""
+        await self.wait_until_ready()
+    
+    async def on_disconnect(self):
+        """Handle bot disconnection."""
+        logger.warning("Bot disconnected from Discord")
+        self.heartbeat.cancel()
+    
+    async def on_connect(self):
+        """Handle bot connection."""
+        logger.info("Bot connected to Discord")
+        self.connection_attempts = 0
+    
+    async def on_resumed(self):
+        """Handle bot resumption."""
+        logger.info("Bot resumed connection to Discord")
+    
+    async def on_error(self, event_method: str, *args, **kwargs):
+        """Handle bot errors."""
+        logger.error(f"Error in {event_method}: {args} {kwargs}")
+    
+    async def on_command_error(self, ctx, error):
+        """Handle command errors."""
+        if isinstance(error, commands.CommandNotFound):
+            return
+        logger.error(f"Command error: {error}")
+        await ctx.send(f"❌ An error occurred: {str(error)}")
 
 
 bot = TodoBot()
@@ -603,22 +672,49 @@ async def delete_list(interaction: discord.Interaction, list_name: str):
 @bot.event
 async def on_ready():
     """Event handler for when bot is ready."""
-    print(f"Logged in as {bot.user}")
-    print(f"Bot is in {len(bot.guilds)} guild(s)")
+    logger.info(f"Logged in as {bot.user}")
+    logger.info(f"Bot is in {len(bot.guilds)} guild(s)")
+    print(f"✅ Bot is online! Logged in as {bot.user}")
+    print(f"📊 Bot is in {len(bot.guilds)} guild(s)")
+    
+    # Log guild information for debugging
+    for guild in bot.guilds:
+        logger.info(f"Connected to guild: {guild.name} (ID: {guild.id})")
 
 
 def main():
     """Main function to start the bot."""
     if not config.DISCORD_TOKEN:
+        logger.error("DISCORD_TOKEN not found in environment variables!")
         print("❌ Error: DISCORD_TOKEN not found in environment variables!")
         print("Please create a .env file with your Discord bot token.")
         exit(1)
     
     # Start Flask server in a separate thread
-    flask_thread = threading.Thread(target=run_flask)
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
+    logger.info("Flask server thread started")
 
-    bot.run(config.DISCORD_TOKEN)
+    # Run bot with error handling and reconnection
+    while True:
+        try:
+            logger.info("Starting Discord bot...")
+            bot.run(config.DISCORD_TOKEN, log_handler=None)
+        except discord.LoginFailure:
+            logger.error("Invalid Discord token!")
+            break
+        except discord.HTTPException as e:
+            logger.error(f"HTTP error: {e}")
+            if e.status == 429:  # Rate limited
+                logger.info("Rate limited, waiting 60 seconds...")
+                time.sleep(60)
+            else:
+                logger.info("Waiting 30 seconds before reconnecting...")
+                time.sleep(30)
+        except Exception as e:
+            logger.error(f"Unexpected error: {e}")
+            logger.info("Waiting 30 seconds before reconnecting...")
+            time.sleep(30)
 
 
 if __name__ == "__main__":
