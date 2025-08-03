@@ -197,6 +197,37 @@ async def safe_interaction_edit(interaction: discord.Interaction, **kwargs):
             pass
 
 
+async def safe_interaction_response_with_view(interaction: discord.Interaction, content: str, embed=None, view=None):
+    """Safely respond to an interaction with a view and properly set message reference."""
+    try:
+        if interaction.response.is_done():
+            message = await interaction.followup.send(content, embed=embed, view=view)
+        else:
+            message = await interaction.response.send_message(content, embed=embed, view=view)
+        
+        # Set the message reference on the view if it exists
+        if view and hasattr(view, 'message'):
+            view.message = message
+            logger.debug(f"Set message reference for view: {type(view).__name__}")
+        
+        return message
+    except discord.NotFound:
+        logger.warning("Interaction not found - it may have expired")
+    except discord.Forbidden:
+        logger.warning("Bot doesn't have permission to respond to this interaction")
+    except discord.HTTPException as e:
+        if e.status == 404 and e.code == 10062:
+            logger.warning("Unknown interaction - it may have expired or been deleted")
+        else:
+            logger.error(f"HTTP error responding to interaction: {e}")
+    except Exception as e:
+        logger.error(f"Failed to respond to interaction: {e}")
+        try:
+            await interaction.followup.send("❌ An error occurred while processing your request.", ephemeral=True)
+        except:
+            pass
+
+
 class TodoItemView(discord.ui.View):
     """Interactive view for individual todo items."""
     
@@ -206,9 +237,12 @@ class TodoItemView(discord.ui.View):
         self.todo_list = todo_list
         self.item_index = item_index
         self.item = todo_list.items[item_index]
+        self.created_at = time.time()
+        logger.debug(f"Created TodoItemView for {todo_list.name} with 300s timeout (created at {self.created_at})")
     
     async def on_timeout(self):
         """Handle view timeout by updating the message."""
+        logger.info(f"TodoItemView timeout triggered for {self.todo_list.name} (created at {self.created_at}, elapsed: {time.time() - self.created_at:.1f}s)")
         try:
             embed = discord.Embed(
                 title="⏰ View Expired",
@@ -223,17 +257,26 @@ class TodoItemView(discord.ui.View):
             )
             embed.set_footer(text="Interactive views expire after 5 minutes for security reasons")
             
-            # Try to edit the message, fallback to followup if needed
-            try:
-                await self.message.edit(embed=embed, view=None)
-            except:
-                # If we can't edit, try to send a followup
+            # Try to edit the message if we have a reference
+            if hasattr(self, 'message') and self.message:
                 try:
-                    await self.message.reply(embed=embed)
-                except:
-                    pass
+                    await self.message.edit(embed=embed, view=None)
+                    logger.info(f"Successfully updated expired view for {self.todo_list.name}")
+                except discord.NotFound:
+                    logger.warning(f"Message not found when trying to update expired view for {self.todo_list.name}")
+                except discord.Forbidden:
+                    logger.warning(f"Bot doesn't have permission to edit message for expired view {self.todo_list.name}")
+                except Exception as e:
+                    logger.error(f"Error editing message for expired view {self.todo_list.name}: {e}")
+            else:
+                logger.warning(f"No message reference available for expired view {self.todo_list.name}")
         except Exception as e:
             logger.error(f"Error in TodoItemView timeout: {e}")
+    
+    async def manual_timeout(self):
+        """Manually trigger timeout for testing purposes."""
+        logger.info(f"Manually triggering timeout for TodoItemView {self.todo_list.name}")
+        await self.on_timeout()
         
     @discord.ui.button(label="Toggle", style=discord.ButtonStyle.primary, custom_id="toggle")
     async def toggle_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -291,10 +334,13 @@ class InteractiveTodoListView(discord.ui.View):
         """Initialize the view with a todo list."""
         super().__init__(timeout=300)  # 5 minute timeout
         self.todo_list = todo_list
+        self.created_at = time.time()
+        logger.debug(f"Created InteractiveTodoListView for {todo_list.name} with 300s timeout (created at {self.created_at})")
         self._create_item_buttons()
     
     async def on_timeout(self):
         """Handle view timeout by updating the message."""
+        logger.info(f"InteractiveTodoListView timeout triggered for {self.todo_list.name} (created at {self.created_at}, elapsed: {time.time() - self.created_at:.1f}s)")
         try:
             embed = discord.Embed(
                 title="🚨 **INTERACTIVE VIEW EXPIRED** 🚨",
@@ -319,17 +365,26 @@ class InteractiveTodoListView(discord.ui.View):
             )
             embed.set_footer(text="🕐 Interactive views automatically expire after 5 minutes | Use /show to get a fresh view")
             
-            # Try to edit the message, fallback to followup if needed
-            try:
-                await self.message.edit(embed=embed, view=None)
-            except:
-                # If we can't edit, try to send a followup
+            # Try to edit the message if we have a reference
+            if hasattr(self, 'message') and self.message:
                 try:
-                    await self.message.reply(embed=embed)
-                except:
-                    pass
+                    await self.message.edit(embed=embed, view=None)
+                    logger.info(f"Successfully updated expired InteractiveTodoListView for {self.todo_list.name}")
+                except discord.NotFound:
+                    logger.warning(f"Message not found when trying to update expired InteractiveTodoListView for {self.todo_list.name}")
+                except discord.Forbidden:
+                    logger.warning(f"Bot doesn't have permission to edit message for expired InteractiveTodoListView {self.todo_list.name}")
+                except Exception as e:
+                    logger.error(f"Error editing message for expired InteractiveTodoListView {self.todo_list.name}: {e}")
+            else:
+                logger.warning(f"No message reference available for expired InteractiveTodoListView {self.todo_list.name}")
         except Exception as e:
             logger.error(f"Error in InteractiveTodoListView timeout: {e}")
+    
+    async def manual_timeout(self):
+        """Manually trigger timeout for testing purposes."""
+        logger.info(f"Manually triggering timeout for InteractiveTodoListView {self.todo_list.name}")
+        await self.on_timeout()
     
     def _create_item_buttons(self):
         """Create individual toggle buttons for each item."""
@@ -384,6 +439,11 @@ class ItemToggleButton(discord.ui.Button):
                 # Update the entire view
                 new_view = InteractiveTodoListView(self.todo_list)
                 embed = create_todo_list_embed(self.todo_list)
+                
+                # Set the message reference on the new view
+                if hasattr(new_view, 'message'):
+                    new_view.message = interaction.message
+                    logger.debug(f"Set message reference for updated view in ItemToggleButton")
                 
                 await safe_interaction_edit(interaction, embed=embed, view=new_view)
             else:
@@ -445,9 +505,12 @@ class TodoListView(discord.ui.View):
         """Initialize the legacy view."""
         super().__init__(timeout=300)  # 5 minute timeout
         self.todo_list = todo_list
+        self.created_at = time.time()
+        logger.debug(f"Created TodoListView for {todo_list.name} with 300s timeout (created at {self.created_at})")
     
     async def on_timeout(self):
         """Handle view timeout by updating the message."""
+        logger.info(f"TodoListView timeout triggered for {self.todo_list.name} (created at {self.created_at}, elapsed: {time.time() - self.created_at:.1f}s)")
         try:
             embed = discord.Embed(
                 title="🚨 **INTERACTIVE VIEW EXPIRED** 🚨",
@@ -472,17 +535,26 @@ class TodoListView(discord.ui.View):
             )
             embed.set_footer(text="🕐 Interactive views automatically expire after 5 minutes | Use /show to get a fresh view")
             
-            # Try to edit the message, fallback to followup if needed
-            try:
-                await self.message.edit(embed=embed, view=None)
-            except:
-                # If we can't edit, try to send a followup
+            # Try to edit the message if we have a reference
+            if hasattr(self, 'message') and self.message:
                 try:
-                    await self.message.reply(embed=embed)
-                except:
-                    pass
+                    await self.message.edit(embed=embed, view=None)
+                    logger.info(f"Successfully updated expired TodoListView for {self.todo_list.name}")
+                except discord.NotFound:
+                    logger.warning(f"Message not found when trying to update expired TodoListView for {self.todo_list.name}")
+                except discord.Forbidden:
+                    logger.warning(f"Bot doesn't have permission to edit message for expired TodoListView {self.todo_list.name}")
+                except Exception as e:
+                    logger.error(f"Error editing message for expired TodoListView {self.todo_list.name}: {e}")
+            else:
+                logger.warning(f"No message reference available for expired TodoListView {self.todo_list.name}")
         except Exception as e:
             logger.error(f"Error in TodoListView timeout: {e}")
+    
+    async def manual_timeout(self):
+        """Manually trigger timeout for testing purposes."""
+        logger.info(f"Manually triggering timeout for TodoListView {self.todo_list.name}")
+        await self.on_timeout()
         
     @discord.ui.button(label="➕ Add Item", style=discord.ButtonStyle.success, custom_id="add_item")
     async def add_item_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -546,6 +618,10 @@ class AddItemModal(discord.ui.Modal, title="Add Todo Item"):
                         embed = create_todo_list_embed(updated_list)
                         view = InteractiveTodoListView(updated_list)
                         await interaction.message.edit(embed=embed, view=view)
+                        # Set the message reference on the view
+                        if hasattr(view, 'message'):
+                            view.message = interaction.message
+                            logger.debug(f"Set message reference for updated view in AddItemModal")
                         logger.info("Successfully updated original message with new item")
                     else:
                         logger.warning("Could not find updated list in manager")
@@ -908,7 +984,7 @@ async def show_list(interaction: discord.Interaction, list_name: str):
         logger.info(f"Found list '{todo_list.name}' with {len(todo_list.items)} items")
         embed = create_todo_list_embed(todo_list)
         view = InteractiveTodoListView(todo_list)
-        await safe_interaction_response(interaction, "", embed=embed, view=view)
+        await safe_interaction_response_with_view(interaction, "", embed=embed, view=view)
         
     except Exception as e:
         logger.error(f"Error showing todo list: {e}")
@@ -937,6 +1013,102 @@ async def debug_commands(interaction: discord.Interaction):
     except Exception as e:
         logger.error(f"Error in debug command: {e}")
         await safe_interaction_response(interaction, f"❌ Error in debug command: {str(e)}", ephemeral=True)
+
+
+@bot.tree.command(name="test_timeout", description="Test timeout functionality (admin only)")
+async def test_timeout(interaction: discord.Interaction):
+    """Test timeout functionality by creating a view that expires quickly."""
+    try:
+        # Check if user has administrator permissions
+        if not interaction.user.guild_permissions.administrator:
+            await safe_interaction_response(
+                interaction,
+                "❌ This command requires administrator permissions!", 
+                ephemeral=True
+            )
+            return
+        
+        guild_id = str(interaction.guild_id)
+        
+        # Create a test list if none exists
+        test_list_name = "Timeout Test List"
+        todo_list = bot.todo_manager.get_list_by_name(test_list_name, guild_id)
+        
+        if not todo_list:
+            # Create a test list
+            todo_list = bot.todo_manager.create_list(test_list_name, str(interaction.user.id), guild_id)
+            # Add some test items
+            bot.todo_manager.add_item_to_list(todo_list.list_id, "Test item 1", str(interaction.user.id))
+            bot.todo_manager.add_item_to_list(todo_list.list_id, "Test item 2", str(interaction.user.id))
+            logger.info(f"Created test list for timeout testing: {todo_list.name}")
+        
+        # Create a view with a very short timeout for testing
+        class TestTimeoutView(discord.ui.View):
+            def __init__(self, todo_list):
+                super().__init__(timeout=30)  # 30 second timeout for testing
+                self.todo_list = todo_list
+                logger.info(f"Created TestTimeoutView with 30s timeout for {todo_list.name}")
+            
+            async def on_timeout(self):
+                """Handle view timeout by updating the message."""
+                try:
+                    embed = discord.Embed(
+                        title="🧪 **TIMEOUT TEST COMPLETE** 🧪",
+                        description=f"**✅ SUCCESS: This test view for '{self.todo_list.name}' has timed out after 30 seconds!**\n\n"
+                                   f"**The timeout functionality is working correctly.**\n"
+                                   f"*This was a test to verify timeout behavior.*",
+                        color=discord.Color.green()
+                    )
+                    embed.add_field(
+                        name="📊 **Test Results:**",
+                        value=f"**✅ Timeout triggered successfully**\n"
+                              f"**✅ Message updated correctly**\n"
+                              f"**✅ View disabled as expected**",
+                        inline=False
+                    )
+                    embed.set_footer(text="🧪 This was a test - normal views expire after 5 minutes")
+                    
+                    # Try to edit the message if we have a reference
+                    if hasattr(self, 'message') and self.message:
+                        try:
+                            await self.message.edit(embed=embed, view=None)
+                            logger.info(f"✅ SUCCESS: Test timeout view updated message for {self.todo_list.name}")
+                        except discord.NotFound:
+                            logger.warning(f"Test message not found when trying to update timeout for {self.todo_list.name}")
+                        except discord.Forbidden:
+                            logger.warning(f"Bot doesn't have permission to edit test message for {self.todo_list.name}")
+                        except Exception as e:
+                            logger.error(f"Error editing test message for {self.todo_list.name}: {e}")
+                    else:
+                        logger.warning(f"No message reference available for test timeout view {self.todo_list.name}")
+                except Exception as e:
+                    logger.error(f"Error in TestTimeoutView timeout: {e}")
+            
+            @discord.ui.button(label="🧪 Test Button", style=discord.ButtonStyle.primary, custom_id="test_button")
+            async def test_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+                """Test button that does nothing."""
+                await safe_interaction_response(interaction, "🧪 Test button clicked! This view will expire in 30 seconds.", ephemeral=True)
+        
+        embed = discord.Embed(
+            title="🧪 Timeout Test",
+            description=f"**Testing timeout functionality for '{todo_list.name}'**\n\n"
+                       f"This view will expire in **30 seconds** to test the timeout behavior.\n"
+                       f"After 30 seconds, the message should update to show a success message.",
+            color=discord.Color.blue()
+        )
+        embed.add_field(
+            name="📋 Test List Items:",
+            value="\n".join([f"• {item.content}" for item in todo_list.items]),
+            inline=False
+        )
+        embed.set_footer(text="🧪 This is a test - normal views expire after 5 minutes")
+        
+        view = TestTimeoutView(todo_list)
+        await safe_interaction_response_with_view(interaction, "", embed=embed, view=view)
+        
+    except Exception as e:
+        logger.error(f"Error in test_timeout command: {e}")
+        await safe_interaction_response(interaction, f"❌ Error in test_timeout command: {str(e)}", ephemeral=True)
 
 
 @bot.tree.command(name="sync", description="Force sync commands to Discord servers (admin only)")
@@ -1218,8 +1390,11 @@ async def refresh_list(interaction: discord.Interaction, list_name: str):
             ephemeral=True
         )
         
-        # Send the refreshed view to the channel
-        await interaction.channel.send(embed=embed, view=view)
+        # Send the refreshed view to the channel and set message reference
+        message = await interaction.channel.send(embed=embed, view=view)
+        if hasattr(view, 'message'):
+            view.message = message
+            logger.debug(f"Set message reference for refresh view: {type(view).__name__}")
         
     except Exception as e:
         logger.error(f"Error refreshing todo list: {e}")
