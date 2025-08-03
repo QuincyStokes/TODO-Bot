@@ -182,7 +182,6 @@ class TodoItemView(discord.ui.View):
             embed.add_field(
                 name="How to continue:",
                 value="• Use `/show {self.todo_list.name}` to get a fresh interactive view\n"
-                      "• Use `/pin {self.todo_list.name}` to create a new persistent display\n"
                       "• Use commands like `/add`, `/toggle`, `/remove` for direct actions",
                 inline=False
             )
@@ -269,7 +268,6 @@ class InteractiveTodoListView(discord.ui.View):
             embed.add_field(
                 name="How to continue:",
                 value="• Use `/show {self.todo_list.name}` to get a fresh interactive view\n"
-                      "• Use `/pin {self.todo_list.name}` to create a new persistent display\n"
                       "• Use commands like `/add`, `/toggle`, `/remove` for direct actions",
                 inline=False
             )
@@ -418,7 +416,6 @@ class TodoListView(discord.ui.View):
             embed.add_field(
                 name="How to continue:",
                 value="• Use `/show {self.todo_list.name}` to get a fresh interactive view\n"
-                      "• Use `/pin {self.todo_list.name}` to create a new persistent display\n"
                       "• Use commands like `/add`, `/toggle`, `/remove` for direct actions",
                 inline=False
             )
@@ -509,7 +506,6 @@ def create_todo_list_embed(todo_list) -> discord.Embed:
     """
     embed = discord.Embed(
         title=f"📋 {todo_list.name}",
-        description=f"Created by <@{todo_list.created_by}>",
         color=discord.Color.blue()
     )
     
@@ -750,10 +746,10 @@ async def list_lists(interaction: discord.Interaction):
         await safe_interaction_response(interaction, f"❌ Error listing todo lists: {str(e)}", ephemeral=True)
 
 
-@bot.tree.command(name="show", description="Show items in a specific todo list")
+@bot.tree.command(name="show", description="Show items in a specific todo list with interactive buttons")
 @app_commands.describe(list_name="Name of the todo list to show")
 async def show_list(interaction: discord.Interaction, list_name: str):
-    """Show items in a specific todo list."""
+    """Show items in a specific todo list with interactive buttons."""
     try:
         guild_id = str(interaction.guild_id)
         todo_list = bot.todo_manager.get_list_by_name(list_name, guild_id)
@@ -775,38 +771,7 @@ async def show_list(interaction: discord.Interaction, list_name: str):
         await safe_interaction_response(interaction, f"❌ Error showing todo list: {str(e)}", ephemeral=True)
 
 
-@bot.tree.command(name="pin", description="Create a persistent todo list display in the channel")
-@app_commands.describe(list_name="Name of the todo list to display")
-async def pin_list(interaction: discord.Interaction, list_name: str):
-    """Create a persistent todo list display in the channel."""
-    try:
-        guild_id = str(interaction.guild_id)
-        todo_list = bot.todo_manager.get_list_by_name(list_name, guild_id)
-        
-        if not todo_list:
-            await safe_interaction_response(
-                interaction,
-                f"❌ Todo list '{list_name}' not found in this server!", 
-                ephemeral=True
-            )
-            return
-        
-        embed = create_todo_list_embed(todo_list)
-        view = InteractiveTodoListView(todo_list)
-        
-        # Send to channel (not ephemeral) so it persists as a regular message
-        await interaction.response.send_message(embed=embed, view=view)
-        
-        # Send confirmation to user
-        await interaction.followup.send(
-            f"✅ Created persistent display for **{list_name}** in the channel!\n"
-            f"💡 Note: Interactive buttons will expire after 5 minutes. Use `/show {list_name}` to refresh.",
-            ephemeral=True
-        )
-        
-    except Exception as e:
-        logger.error(f"Error creating persistent display: {e}")
-        await safe_interaction_response(interaction, f"❌ Error creating display: {str(e)}", ephemeral=True)
+
 
 
 @bot.tree.command(name="debug", description="List all registered commands (debug)")
@@ -878,7 +843,6 @@ async def help_command(interaction: discord.Interaction):
             value="• `/create [name]` - Create a new todo list\n"
                   "• `/list` - Show all todo lists in this server\n"
                   "• `/show [name]` - Display a todo list with interactive buttons\n"
-                  "• `/pin [name]` - Create a persistent display in the channel\n"
                   "• `/info [name]` - Get detailed information about a list\n"
                   "• `/delete [name]` - Delete a todo list",
             inline=False
@@ -898,8 +862,7 @@ async def help_command(interaction: discord.Interaction):
             name="🔄 Interactive Features",
             value="• Interactive views have buttons for quick actions\n"
                   "• Views expire after 5 minutes for security\n"
-                  "• Use `/show [name]` to refresh expired views\n"
-                  "• Use `/pin [name]` for persistent displays",
+                  "• Use `/show [name]` to refresh expired views",
             inline=False
         )
         

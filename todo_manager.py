@@ -245,7 +245,12 @@ class TodoManager:
     
     def __del__(self):
         """Destructor to ensure data is saved."""
-        self.force_save()
+        try:
+            if hasattr(self, 'todo_lists') and not hasattr(self, '_saving_to_json'):
+                self.force_save()
+        except:
+            # Ignore errors during cleanup
+            pass
     
     def load_lists(self):
         """Load todo lists from storage."""
@@ -460,8 +465,9 @@ class TodoManager:
 
     def _init_database(self):
         """Initialize the SQLite database with required tables."""
+        conn = None
         try:
-            conn = sqlite3.connect(DATABASE_PATH)
+            conn = sqlite3.connect(DATABASE_PATH, timeout=30.0)
             cursor = conn.cursor()
             
             # Create lists table
@@ -496,7 +502,6 @@ class TodoManager:
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_items_list ON todo_items (list_id)')
             
             conn.commit()
-            conn.close()
             print(f"Database initialized at {DATABASE_PATH}")
             
         except Exception as e:
@@ -504,22 +509,28 @@ class TodoManager:
             # Fall back to JSON storage
             global USE_DATABASE
             USE_DATABASE = False
-            self.load_lists()
+            if not hasattr(self, '_loading_from_json'):
+                self._loading_from_json = True
+                self.load_lists()
+                delattr(self, '_loading_from_json')
+        finally:
+            if conn:
+                conn.close()
     
     def clear_database(self):
         """Clear all data from the database (for testing)."""
         if not USE_DATABASE:
             return
         
+        conn = None
         try:
-            conn = sqlite3.connect(DATABASE_PATH)
+            conn = sqlite3.connect(DATABASE_PATH, timeout=30.0)
             cursor = conn.cursor()
             
             cursor.execute('DELETE FROM todo_items')
             cursor.execute('DELETE FROM todo_lists')
             
             conn.commit()
-            conn.close()
             
             # Clear in-memory data
             self.todo_lists.clear()
@@ -527,16 +538,20 @@ class TodoManager:
             
         except Exception as e:
             print(f"Error clearing database: {e}")
+        finally:
+            if conn:
+                conn.close()
     
     def _migrate_from_json(self):
         """Migrate data from JSON file to database if JSON file exists."""
         if os.path.exists(JSON_FALLBACK):
+            conn = None
             try:
                 print("Migrating data from JSON to database...")
                 with open(JSON_FALLBACK, 'r') as f:
                     data = json.load(f)
                 
-                conn = sqlite3.connect(DATABASE_PATH)
+                conn = sqlite3.connect(DATABASE_PATH, timeout=30.0)
                 cursor = conn.cursor()
                 
                 for list_id, list_data in data.items():
@@ -571,7 +586,6 @@ class TodoManager:
                         ))
                 
                 conn.commit()
-                conn.close()
                 
                 # Backup the old JSON file
                 backup_path = JSON_FALLBACK + '.backup'
@@ -582,14 +596,18 @@ class TodoManager:
                 print(f"Error during migration: {e}")
                 # Continue with database, but keep JSON as fallback
                 pass
+            finally:
+                if conn:
+                    conn.close()
         
         # Load data from database
         self._load_from_database()
     
     def _load_from_database(self):
         """Load all todo lists from the database."""
+        conn = None
         try:
-            conn = sqlite3.connect(DATABASE_PATH)
+            conn = sqlite3.connect(DATABASE_PATH, timeout=30.0)
             cursor = conn.cursor()
             
             # Load all lists
@@ -623,18 +641,24 @@ class TodoManager:
                 
                 self.todo_lists[list_id] = todo_list
             
-            conn.close()
             print(f"Loaded {len(self.todo_lists)} lists from database")
             
         except Exception as e:
             print(f"Error loading from database: {e}")
             # Fall back to JSON if database fails
-            self.load_lists()
+            if not hasattr(self, '_loading_from_json'):
+                self._loading_from_json = True
+                self.load_lists()
+                delattr(self, '_loading_from_json')
+        finally:
+            if conn:
+                conn.close()
     
     def _save_to_database(self):
         """Save all todo lists to the database."""
+        conn = None
         try:
-            conn = sqlite3.connect(DATABASE_PATH)
+            conn = sqlite3.connect(DATABASE_PATH, timeout=30.0)
             cursor = conn.cursor()
             
             # Clear existing data
@@ -671,12 +695,17 @@ class TodoManager:
                     ))
             
             conn.commit()
-            conn.close()
             
         except Exception as e:
             print(f"Error saving to database: {e}")
             # Fall back to JSON if database fails
-            self.save_lists() 
+            if not hasattr(self, '_saving_to_json'):
+                self._saving_to_json = True
+                self.save_lists()
+                delattr(self, '_saving_to_json')
+        finally:
+            if conn:
+                conn.close() 
 
     def _save_to_json(self):
         """Save todo lists to JSON file with error handling and backup."""

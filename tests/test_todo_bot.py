@@ -332,24 +332,13 @@ class TestBotCommands(unittest.TestCase):
         self.assertIsNone(other_guild)
     
     def test_show_command_logic(self):
-        """Test the show command logic"""
+        """Test the show command logic with interactive buttons"""
         # Test showing existing list
         list_to_show = self.manager.get_list_by_name("Test List", "guild456")
         self.assertIsNotNone(list_to_show)
         self.assertEqual(len(list_to_show.items), 3)
         
         # Test showing non-existent list
-        non_existent = self.manager.get_list_by_name("Non Existent", "guild456")
-        self.assertIsNone(non_existent)
-    
-    def test_pin_command_logic(self):
-        """Test the pin command logic"""
-        # Test pinning existing list
-        list_to_pin = self.manager.get_list_by_name("Test List", "guild456")
-        self.assertIsNotNone(list_to_pin)
-        self.assertEqual(len(list_to_pin.items), 3)
-        
-        # Test pinning non-existent list
         non_existent = self.manager.get_list_by_name("Non Existent", "guild456")
         self.assertIsNone(non_existent)
     
@@ -480,7 +469,6 @@ class TestNewFeatures(unittest.TestCase):
         # Test that timeout messages include proper instructions
         timeout_instructions = [
             "Use `/show {list_name}` to get a fresh interactive view",
-            "Use `/pin {list_name}` to create a new persistent display",
             "Use commands like `/add`, `/toggle`, `/remove` for direct actions"
         ]
         
@@ -488,13 +476,11 @@ class TestNewFeatures(unittest.TestCase):
         for instruction in timeout_instructions:
             if "show" in instruction:
                 self.assertIn("show", instruction)
-            elif "pin" in instruction:
-                self.assertIn("pin", instruction)
             elif "commands" in instruction:
                 self.assertIn("commands", instruction)
         
         # Test that we have the expected number of instructions
-        self.assertEqual(len(timeout_instructions), 3)
+        self.assertEqual(len(timeout_instructions), 2)
     
     def test_embed_creation_without_list_id(self):
         """Test that embeds are created without List ID in footer"""

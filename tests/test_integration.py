@@ -14,6 +14,8 @@ import asyncio
 # Add the parent directory to the path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from todo_manager import TodoManager
+
 class TestBotIntegration(unittest.TestCase):
     """Integration tests for the bot"""
     
@@ -57,7 +59,7 @@ class TestBotIntegration(unittest.TestCase):
             
             # Check that commands are registered
             command_names = [cmd.name for cmd in bot.tree.get_commands()]
-            expected_commands = ['create', 'add', 'remove', 'toggle', 'list', 'show', 'pin', 'debug', 'delete']
+            expected_commands = ['create', 'add', 'remove', 'toggle', 'list', 'show', 'debug', 'delete']
             
             # For now, just check that the bot can be created and has a command tree
             self.assertIsNotNone(bot.tree)
@@ -71,7 +73,6 @@ class TestBotIntegration(unittest.TestCase):
     def test_data_persistence_integration(self):
         """Test that data persists through bot restarts"""
         try:
-            from todo_manager import TodoManager
             import os
             
             # Use a file path in the test directory
