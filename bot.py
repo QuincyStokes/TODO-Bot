@@ -75,7 +75,15 @@ class TodoBot(commands.Bot):
         logger.info(f"Initializing TodoManager with DATA_DIR: {config.DATA_DIR}")
         logger.info(f"Database enabled: {config.USE_DATABASE}")
         logger.info(f"Database path: {config.DATABASE_PATH}")
-        self.todo_manager = TodoManager("todo_lists.json")
+        
+        try:
+            self.todo_manager = TodoManager("todo_lists.json")
+            logger.info(f"TodoManager initialized successfully. Loaded {len(self.todo_manager.todo_lists)} lists")
+        except Exception as e:
+            logger.error(f"Failed to initialize TodoManager: {e}")
+            # Create a basic todo manager as fallback
+            self.todo_manager = TodoManager("todo_lists.json")
+            logger.info("Created fallback TodoManager")
         self.last_heartbeat = time.time()
         self.connection_attempts = 0
         self.max_reconnect_attempts = 5
@@ -145,6 +153,15 @@ async def safe_interaction_response(interaction: discord.Interaction, content: s
             await interaction.followup.send(content, **kwargs)
         else:
             await interaction.response.send_message(content, **kwargs)
+    except discord.NotFound:
+        logger.warning("Interaction not found - it may have expired")
+    except discord.Forbidden:
+        logger.warning("Bot doesn't have permission to respond to this interaction")
+    except discord.HTTPException as e:
+        if e.status == 404 and e.code == 10062:
+            logger.warning("Unknown interaction - it may have expired or been deleted")
+        else:
+            logger.error(f"HTTP error responding to interaction: {e}")
     except Exception as e:
         logger.error(f"Failed to respond to interaction: {e}")
         try:
@@ -157,6 +174,15 @@ async def safe_interaction_edit(interaction: discord.Interaction, **kwargs):
     """Safely edit an interaction message with error handling."""
     try:
         await interaction.response.edit_message(**kwargs)
+    except discord.NotFound:
+        logger.warning("Interaction not found - it may have expired")
+    except discord.Forbidden:
+        logger.warning("Bot doesn't have permission to edit this interaction")
+    except discord.HTTPException as e:
+        if e.status == 404 and e.code == 10062:
+            logger.warning("Unknown interaction - it may have expired or been deleted")
+        else:
+            logger.error(f"HTTP error editing interaction: {e}")
     except Exception as e:
         logger.error(f"Failed to edit interaction: {e}")
         try:
@@ -497,10 +523,19 @@ class AddItemModal(discord.ui.Modal, title="Add Todo Item"):
                 
                 # Try to update the original message, but don't fail if it doesn't work
                 try:
-                    embed = create_todo_list_embed(self.todo_list)
-                    view = InteractiveTodoListView(self.todo_list)
-                    await interaction.message.edit(embed=embed, view=view)
-                    logger.info("Successfully updated original message with new item")
+                    # Refresh the todo list from the manager to get the latest data
+                    updated_list = bot.todo_manager.get_list(self.todo_list.list_id)
+                    if updated_list:
+                        embed = create_todo_list_embed(updated_list)
+                        view = InteractiveTodoListView(updated_list)
+                        await interaction.message.edit(embed=embed, view=view)
+                        logger.info("Successfully updated original message with new item")
+                    else:
+                        logger.warning("Could not find updated list in manager")
+                except discord.NotFound:
+                    logger.warning("Original message not found - it may have been deleted")
+                except discord.Forbidden:
+                    logger.warning("Bot doesn't have permission to edit the original message")
                 except Exception as edit_error:
                     logger.warning(f"Could not update original message: {edit_error}")
                     # The item was still added successfully, so we don't need to fail
@@ -707,11 +742,21 @@ async def list_lists(interaction: discord.Interaction):
         todo_lists = bot.todo_manager.get_all_lists(guild_id)
         
         if not todo_lists:
-            await safe_interaction_response(
-                interaction,
-                "📋 No todo lists found in this server. Create one with `/create`!", 
-                ephemeral=True
+            embed = discord.Embed(
+                title="📋 No Todo Lists Found",
+                description="No todo lists found in this server.",
+                color=discord.Color.orange()
             )
+            
+            embed.add_field(
+                name="What to do next:",
+                value="• Use `/create <name>` to create a new todo list\n"
+                      "• Use `/dbinfo` to check database status\n"
+                      "• Use `/reload` (admin only) to reload data from storage",
+                inline=False
+            )
+            
+            await safe_interaction_response(interaction, "", embed=embed, ephemeral=True)
             return
         
         # Group lists by base name to show duplicates
@@ -1103,8 +1148,7 @@ async def refresh_list(interaction: discord.Interaction, list_name: str):
         embed = create_todo_list_embed(todo_list)
         view = InteractiveTodoListView(todo_list)
         
-        await safe_interaction_response(
-            interaction, 
+        await safe_interaction_response(interaction, 
             f"🔄 Created fresh interactive view for **{list_name}**!", 
             ephemeral=True
         )
@@ -1115,6 +1159,122 @@ async def refresh_list(interaction: discord.Interaction, list_name: str):
     except Exception as e:
         logger.error(f"Error refreshing todo list: {e}")
         await safe_interaction_response(interaction, f"❌ Error refreshing list: {str(e)}", ephemeral=True)
+
+
+@bot.tree.command(name="reload", description="Force reload data from storage (debug)")
+async def reload_data(interaction: discord.Interaction):
+    """Force reload all data from storage."""
+    try:
+        # Check if user has admin permissions
+        if not interaction.user.guild_permissions.administrator:
+            await safe_interaction_response(
+                interaction,
+                "❌ This command requires administrator permissions!", 
+                ephemeral=True
+            )
+            return
+        
+        # Store current count for comparison
+        old_count = len(bot.todo_manager.todo_lists)
+        
+        # Force reload data
+        if config.USE_DATABASE:
+            bot.todo_manager._load_from_database()
+        else:
+            bot.todo_manager.load_lists()
+        
+        new_count = len(bot.todo_manager.todo_lists)
+        
+        embed = discord.Embed(
+            title="🔄 Data Reload Complete",
+            color=discord.Color.green()
+        )
+        
+        embed.add_field(
+            name="Results",
+            value=f"**Before:** {old_count} lists\n**After:** {new_count} lists\n**Change:** {new_count - old_count}",
+            inline=False
+        )
+        
+        # Show lists for this guild
+        guild_lists = bot.todo_manager.get_all_lists(str(interaction.guild_id))
+        if guild_lists:
+            list_names = [l.name for l in guild_lists]
+            embed.add_field(
+                name=f"Lists for this Guild ({len(guild_lists)})",
+                value="\n".join(list_names),
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="Lists for this Guild",
+                value="No lists found",
+                inline=False
+            )
+        
+        await safe_interaction_response(interaction, "", embed=embed, ephemeral=True)
+        
+    except Exception as e:
+        logger.error(f"Error reloading data: {e}")
+        await safe_interaction_response(interaction, f"❌ Error reloading data: {str(e)}", ephemeral=True)
+
+
+@bot.tree.command(name="forcesave", description="Force save all data to storage (debug)")
+async def force_save_data(interaction: discord.Interaction):
+    """Force save all data to storage."""
+    try:
+        # Check if user has admin permissions
+        if not interaction.user.guild_permissions.administrator:
+            await safe_interaction_response(
+                interaction,
+                "❌ This command requires administrator permissions!", 
+                ephemeral=True
+            )
+            return
+        
+        # Store current count
+        list_count = len(bot.todo_manager.todo_lists)
+        
+        # Force save data
+        bot.todo_manager.force_save()
+        
+        embed = discord.Embed(
+            title="💾 Force Save Complete",
+            color=discord.Color.green()
+        )
+        
+        embed.add_field(
+            name="Results",
+            value=f"**Lists saved:** {list_count}\n**Storage type:** {'Database' if config.USE_DATABASE else 'JSON'}",
+            inline=False
+        )
+        
+        # Show storage info
+        if config.USE_DATABASE:
+            import os
+            if os.path.exists(config.DATABASE_PATH):
+                db_size = os.path.getsize(config.DATABASE_PATH)
+                embed.add_field(
+                    name="Database Info",
+                    value=f"**Path:** {config.DATABASE_PATH}\n**Size:** {db_size} bytes",
+                    inline=False
+                )
+        else:
+            import os
+            json_path = os.path.join(config.DATA_DIR, 'todo_lists.json')
+            if os.path.exists(json_path):
+                json_size = os.path.getsize(json_path)
+                embed.add_field(
+                    name="JSON Info",
+                    value=f"**Path:** {json_path}\n**Size:** {json_size} bytes",
+                    inline=False
+                )
+        
+        await safe_interaction_response(interaction, "", embed=embed, ephemeral=True)
+        
+    except Exception as e:
+        logger.error(f"Error force saving data: {e}")
+        await safe_interaction_response(interaction, f"❌ Error force saving data: {str(e)}", ephemeral=True)
 
 
 @bot.event

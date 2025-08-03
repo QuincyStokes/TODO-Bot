@@ -249,6 +249,7 @@ class TodoManager:
         if USE_DATABASE:
             self._init_database()
             self._migrate_from_json()
+            self._load_from_database()  # Explicitly load data after initialization
         else:
             self.load_lists()
     
@@ -616,8 +617,20 @@ class TodoManager:
         """Load all todo lists from the database."""
         conn = None
         try:
+            print(f"Attempting to load from database at: {DATABASE_PATH}")
+            if not os.path.exists(DATABASE_PATH):
+                print(f"Database file does not exist at {DATABASE_PATH}")
+                return
+                
             conn = sqlite3.connect(DATABASE_PATH, timeout=30.0)
             cursor = conn.cursor()
+            
+            # Check if tables exist
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='todo_lists'")
+            if not cursor.fetchone():
+                print("Database tables do not exist, initializing...")
+                self._init_database()
+                return
             
             # Load all lists
             cursor.execute('SELECT list_id, name, created_by, guild_id, created_at FROM todo_lists')
@@ -656,12 +669,13 @@ class TodoManager:
                 
                 self.todo_lists[list_id] = todo_list
             
-            print(f"Loaded {len(self.todo_lists)} lists from database")
+            print(f"Successfully loaded {len(self.todo_lists)} lists from database")
             
         except Exception as e:
             print(f"Error loading from database: {e}")
             # Fall back to JSON if database fails
             if not hasattr(self, '_loading_from_json'):
+                print("Falling back to JSON storage...")
                 self._loading_from_json = True
                 self.load_lists()
                 delattr(self, '_loading_from_json')
