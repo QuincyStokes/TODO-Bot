@@ -198,7 +198,16 @@ class TodoList:
                 data.get('guild_id', 'unknown'),
                 data.get('list_id')
             )
-            todo_list.created_at = data.get('created_at', datetime.now().isoformat())
+            # Ensure created_at is always a string
+            created_at = data.get('created_at')
+            if created_at:
+                # If it's already a string, use it; if it's a datetime, convert to string
+                if isinstance(created_at, str):
+                    todo_list.created_at = created_at
+                else:
+                    todo_list.created_at = created_at.isoformat()
+            else:
+                todo_list.created_at = datetime.now().isoformat()
             
             # Load items with error handling
             items_data = data.get('items', [])
@@ -614,8 +623,12 @@ class TodoManager:
             cursor.execute('SELECT list_id, name, created_by, guild_id, created_at FROM todo_lists')
             lists_data = cursor.fetchall()
             
+            print(f"Found {len(lists_data)} lists in database")
+            self.todo_lists.clear()
+            
             for list_data in lists_data:
                 list_id, name, created_by, guild_id, created_at = list_data
+                print(f"Loading list: {name} (ID: {list_id}) in guild {guild_id}")
                 
                 # Create TodoList object
                 todo_list = TodoList(name, created_by, guild_id, list_id)
@@ -628,6 +641,8 @@ class TodoManager:
                 ''', (list_id,))
                 
                 items_data = cursor.fetchall()
+                print(f"Found {len(items_data)} items for list {name}")
+                
                 for item_data in items_data:
                     item_id, content, item_created_by, completed, completed_by, completed_at, item_created_at = item_data
                     

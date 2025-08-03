@@ -33,3 +33,13 @@
 2025-08-03 00:13:36,719 - bot - INFO - Initializing TodoManager with DATA_DIR: /opt/render/project/src/data
 2025-08-03 00:13:36,720 - bot - INFO - Database enabled: True
 2025-08-03 00:13:36,720 - bot - INFO - Database path: /opt/render/project/src/data\todo_bot.db
+2025-08-03 00:20:50,125 - discord.client - WARNING - PyNaCl is not installed, voice will NOT be supported
+2025-08-03 00:20:50,126 - bot - INFO - Initializing TodoManager with DATA_DIR: /opt/render/project/src/data
+2025-08-03 00:20:50,126 - bot - INFO - Database enabled: True
+2025-08-03 00:20:50,126 - bot - INFO - Database path: /opt/render/project/src/data\todo_bot.db
+2025-08-03 00:20:50,131 - bot - INFO - Initializing TodoManager with DATA_DIR: /opt/render/project/src/data
+2025-08-03 00:20:50,131 - bot - INFO - Database enabled: True
+2025-08-03 00:20:50,131 - bot - INFO - Database path: /opt/render/project/src/data\todo_bot.db
+2025-08-03 00:20:50,144 - bot - INFO - Initializing TodoManager with DATA_DIR: /opt/render/project/src/data
+2025-08-03 00:20:50,144 - bot - INFO - Database enabled: True
+2025-08-03 00:20:50,144 - bot - INFO - Database path: /opt/render/project/src/data\todo_bot.db

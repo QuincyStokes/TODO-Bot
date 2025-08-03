@@ -769,16 +769,34 @@ async def show_list(interaction: discord.Interaction, list_name: str):
     """Show items in a specific todo list with interactive buttons."""
     try:
         guild_id = str(interaction.guild_id)
+        logger.info(f"Looking for list '{list_name}' in guild {guild_id}")
+        
+        # Get all lists for this guild for debugging
+        all_lists = bot.todo_manager.get_all_lists(guild_id)
+        logger.info(f"Found {len(all_lists)} lists in guild {guild_id}: {[l.name for l in all_lists]}")
+        
         todo_list = bot.todo_manager.get_list_by_name(list_name, guild_id)
         
         if not todo_list:
-            await safe_interaction_response(
-                interaction,
-                f"❌ Todo list '{list_name}' not found in this server!", 
-                ephemeral=True
-            )
+            # Provide more helpful error message
+            if all_lists:
+                list_names = [l.name for l in all_lists]
+                await safe_interaction_response(
+                    interaction,
+                    f"❌ Todo list '{list_name}' not found in this server!\n\n"
+                    f"Available lists: {', '.join(list_names)}", 
+                    ephemeral=True
+                )
+            else:
+                await safe_interaction_response(
+                    interaction,
+                    f"❌ Todo list '{list_name}' not found in this server!\n\n"
+                    f"No lists found. Create one with `/create {list_name}`", 
+                    ephemeral=True
+                )
             return
         
+        logger.info(f"Found list '{todo_list.name}' with {len(todo_list.items)} items")
         embed = create_todo_list_embed(todo_list)
         view = InteractiveTodoListView(todo_list)
         await safe_interaction_response(interaction, "", embed=embed, view=view, ephemeral=True)
@@ -847,12 +865,24 @@ async def database_info(interaction: discord.Interaction):
         
         # Current data status
         total_lists = len(bot.todo_manager.todo_lists)
+        guild_lists = bot.todo_manager.get_all_lists(str(interaction.guild_id))
         embed.add_field(
             name="Current Data",
             value=f"**Total lists in memory:** {total_lists}\n"
-                  f"**Lists for this guild:** {len(bot.todo_manager.get_all_lists(str(interaction.guild_id)))}",
+                  f"**Lists for this guild:** {len(guild_lists)}",
             inline=False
         )
+        
+        # Show all lists for this guild
+        if guild_lists:
+            list_details = []
+            for todo_list in guild_lists:
+                list_details.append(f"• **{todo_list.name}** (ID: {todo_list.list_id}) - {len(todo_list.items)} items")
+            embed.add_field(
+                name="Guild Lists",
+                value="\n".join(list_details),
+                inline=False
+            )
         
         await safe_interaction_response(interaction, "", embed=embed, ephemeral=True)
         
@@ -995,12 +1025,26 @@ async def list_info(interaction: discord.Interaction, list_name: str):
         )
         
         # Technical details
+        # Handle timestamp conversion safely
+        try:
+            if isinstance(todo_list.created_at, str):
+                # Parse ISO string to datetime
+                from datetime import datetime
+                created_dt = datetime.fromisoformat(todo_list.created_at.replace('Z', '+00:00'))
+                created_timestamp = int(created_dt.timestamp())
+            else:
+                created_timestamp = int(todo_list.created_at.timestamp())
+            created_at_display = f"<t:{created_timestamp}:F>"
+        except Exception as e:
+            logger.warning(f"Could not parse created_at timestamp: {e}")
+            created_at_display = todo_list.created_at
+        
         embed.add_field(
             name="🔧 Technical Details",
             value=f"• **List ID:** `{todo_list.list_id}`\n"
                   f"• **Guild ID:** `{todo_list.guild_id}`\n"
                   f"• **Created By:** <@{todo_list.created_by}>\n"
-                  f"• **Created At:** <t:{int(todo_list.created_at.timestamp())}:F>",
+                  f"• **Created At:** {created_at_display}",
             inline=False
         )
         
