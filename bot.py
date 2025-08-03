@@ -9,12 +9,10 @@ Supports creating, managing, and sharing todo lists within Discord servers.
 # Import audioop patch first to prevent import errors
 import patch_audioop
 
-import asyncio
 import logging
 import os
 import threading
 import time
-from typing import Optional
 
 import discord
 from discord import app_commands
@@ -29,8 +27,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler('bot.log')
+        logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
